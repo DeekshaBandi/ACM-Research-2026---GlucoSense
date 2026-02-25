@@ -1,0 +1,109 @@
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+############################
+# Build / Packaging
+############################
+build/
+dist/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+
+############################
+# Virtual Environments
+############################
+venv/
+env/
+ENV/
+.venv/
+.env
+
+############################
+# Data (ALL datasets)
+############################
+data/
+datasets/
+*.csv
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.parquet
+
+############################
+# Model Weights
+############################
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pb
+*.joblib
+
+############################
+# Experiment Tracking
+############################
+wandb/
+mlruns/
+tensorboard/
+runs/
+logs/
+
+############################
+# Results / Outputs
+############################
+results/
+outputs/
+checkpoints/
+predictions/
+
+############################
+# Jupyter
+############################
+.ipynb_checkpoints/
+
+############################
+# IDE
+############################
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+############################
+# OS Files
+############################
+.DS_Store
+Thumbs.db
+
+############################
+# Temporary Files
+############################
+tmp/
+temp/
+*.tmp
+
+############################
+# Keep Important Files
+############################
+!requirements.txt
+!README.md
+!pyproject.toml
+!setup.py

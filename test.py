@@ -1,1 +1,0 @@
-print("Hello world. Checking my Python environment.")
