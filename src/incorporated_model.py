@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
@@ -115,9 +116,18 @@ def main():
     model.fit(X_train, y_train, sample_weight=weights)
     
     print("\n" + "="*50)
-    print("STRATEGY 4: FULL SENSOR FUSION + TRENDS + FOOD")
+    print("STRATEGY 3: FULL SENSOR FUSION + TRENDS + FOOD")
     print("="*50)
     print(classification_report(y_test, model.predict(X_test), target_names=le.classes_))
+
+    # Model Importance plot
+    importance = model.feature_importances_
+    feat_names = features
+    plt.figure(figsize=(10, 6))
+    plt.barh(feat_names, importance)
+    plt.xlabel("Importance Score")
+    plt.title("Which Sensors are Predicting Glucose Levels?")
+    plt.savefig("feature_importance.png")
 
 if __name__ == "__main__":
     main()
