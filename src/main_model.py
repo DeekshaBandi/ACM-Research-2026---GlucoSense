@@ -3,14 +3,24 @@ import numpy as np
 import os
 import xgboost as xgb
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score # Fixed import here
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import resample
 import warnings
 
+# Import the logic from feature_engineering
+from feature_engineering import engineer_features
+
 warnings.filterwarnings("ignore")
 
-def load_data():
+def load_and_sync_dataset():
+    """
+    Orchestrates the data pipeline:
+    1. Finds participant folders
+    2. Loads labels (Ground Truth)
+    3. Calls external feature engineering
+    4. Aligns sensors to labels temporally
+    """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, ".."))
     data_dir = os.path.join(project_root, 'data', 'glycemic_data')
@@ -18,115 +28,138 @@ def load_data():
     all_data_frames = []
     folders = sorted([f for f in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, f))])
     
-    print(f"Syncing Balanced Passive Streams + Trends for {len(folders)} participants...")
+    print(f"Starting pipeline for {len(folders)} participants...")
     
     for p_id in folders:
         p_path = os.path.join(data_dir, p_id)
         label_file = os.path.join(p_path, f"Dexcom_{p_id}_labeled.csv")
-        if not os.path.exists(label_file): continue
+        
+        if not os.path.exists(label_file):
+            continue
             
         try:
-            # 1. Load Labels
+            # 1. Load Ground Truth Labels
             gdf = pd.read_csv(label_file)
             gdf['Timestamp'] = pd.to_datetime(gdf['Timestamp']).dt.floor('s')
-            # Handle duplicates (ID 001/015 fix)
-            gdf = gdf.sort_values('Timestamp').groupby('Timestamp').first() 
+            gdf = gdf.sort_values('Timestamp').groupby('Timestamp').first()
 
-            # 2. Optimized Sensor Loading
-            def load_sensor_fast(name):
-                f_path = os.path.join(p_path, f"{name}_{p_id}.csv")
-                if not os.path.exists(f_path): return pd.DataFrame()
-                df = pd.read_csv(f_path)
-                df.columns = [c.strip().lower() for c in df.columns]
-                t_col = 'datetime' if 'datetime' in df.columns else 'time'
-                df[t_col] = pd.to_datetime(df[t_col]).dt.floor('s')
-                return df.groupby(t_col).mean().sort_index()
+            # 2. Call the new modular feature engineering
+            features_dict = engineer_features(p_path, p_id)
+            if not features_dict:
+                continue
 
-            sensors = {s: load_sensor_fast(s) for s in ["HR", "TEMP", "EDA", "BVP", "ACC", "IBI"]}
+            # 3. Temporal Alignment (Merge sensor features onto Dexcom timestamps)
+            merged_df = gdf.copy()
+            for feat_name, series in features_dict.items():
+                merged_df = pd.merge_asof(
+                    merged_df.sort_index(), 
+                    series.to_frame(feat_name).sort_index(), 
+                    left_index=True, 
+                    right_index=True
+                )
 
-            # 3. Feature Engineering: Means AND Trends (Slopes)
-            features_dict = {}
-            for s_name, sdf in sensors.items():
-                if sdf.empty: continue
-                
-                # Dynamic column finding
-                cols = sdf.columns
-                v_col = [c for c in cols if any(x in c for x in [s_name.lower(), 'value', 'temp', 'mag'])][0]
-                
-                # Special handling for ACC Magnitude
-                if s_name == "ACC" and 'acc_x' in sdf.columns:
-                    sdf['mag'] = np.sqrt(sdf['acc_x']**2 + sdf['acc_y']**2 + sdf['acc_z']**2)
-                    v_col = 'mag'
-
-                # FEATURE: 5-min Mean (State)
-                features_dict[f'{s_name.lower()}_mean'] = sdf[v_col].rolling('5min').mean()
-                # FEATURE: 10-min Slope (Trend/Velocity)
-                features_dict[f'{s_name.lower()}_slope'] = (sdf[v_col] - sdf[v_col].shift(1)).rolling('10min').mean()
-
-            # 4. Temporal Alignment
-            m = gdf.copy()
-            for name, series in features_dict.items():
-                m = pd.merge_asof(m, series.to_frame(name), left_index=True, right_index=True)
-
-            # Drop rows missing core sensor data
-            clean_m = m.dropna(subset=['hr_mean', 'eda_mean', 'temp_mean'])
-            if not clean_m.empty:
-                all_data_frames.append(clean_m)
-                print(f"ID {p_id}: Synced {len(clean_m)} windows")
+            # Clean up missing data (where sensors might have been off)
+            clean_df = merged_df.dropna(subset=[col for col in merged_df.columns if '_mean_5' in col])
+            
+            if not clean_df.empty:
+                all_data_frames.append(clean_df)
+                print(f"  [SUCCESS] ID {p_id}: Synced {len(clean_df)} windows")
             
         except Exception as e:
-            print(f"ID {p_id}: Error - {e}")
+            print(f"  [ERROR] ID {p_id}: {e}")
 
-    return pd.concat(all_data_frames)
+    return pd.concat(all_data_frames) if all_data_frames else pd.DataFrame()
 
 def main():
-    df = load_data()
-    
-    # 5. CLASS BALANCING 
-    # Undersampling the majority 'PersNorm' class
+    # --- DATA INGESTION ---
+    df = load_and_sync_dataset()
+    if df.empty:
+        print("No data found. Check file paths and label files.")
+        return
+
+    # --- CLASS BALANCING ---
+    # We balance based on the smallest class to ensure the model learns 'High' and 'Low' 
+    # as effectively as 'Normal'.
     counts = df['Pers_Label'].value_counts()
-    min_class_size = counts.min() # Usually PersHigh or PersLow
+    min_size = counts.min()
     
-    df_high = df[df['Pers_Label'] == 'PersHigh']
-    df_low = df[df['Pers_Label'] == 'PersLow']
-    df_norm = df[df['Pers_Label'] == 'PersNorm']
+    df_bal = pd.concat([
+        resample(df[df['Pers_Label'] == label], replace=False, n_samples=min_size, random_state=42)
+        for label in df['Pers_Label'].unique()
+    ])
     
-    # Balance all to the size of the smallest class (e.g., PersLow)
-    df_high_bal = resample(df_high, replace=False, n_samples=min_class_size, random_state=42)
-    df_low_bal = resample(df_low, replace=False, n_samples=min_class_size, random_state=42)
-    df_norm_bal = resample(df_norm, replace=False, n_samples=min_class_size, random_state=42)
-    
-    df_balanced = pd.concat([df_high_bal, df_low_bal, df_norm_bal])
-    
-    print(f"\nDataset Balanced: {min_class_size} samples per class.")
+    print(f"\nTraining on Balanced Dataset: {min_size} samples per class ({len(df_bal)} total).")
 
-    # 6. Training
-    features = [c for c in df_balanced.columns if '_mean' in c or '_slope' in c]
-    X = df_balanced[features]
+    # --- PREPARATION ---
+    # Identify all engineered columns (excluding labels and rolling stats)
+    feature_cols = [c for c in df_bal.columns if any(suffix in c for suffix in ['_5', '_30', '_10', '_ratio'])]
+    
+    X = df_bal[feature_cols]
     le = LabelEncoder()
-    y = le.fit_transform(df_balanced['Pers_Label'])
+    y = le.fit_transform(df_bal['Pers_Label'])
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=42
+    )
 
-    # XGBoost Config
-    model = xgb.XGBClassifier(n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42)
+    # --- MODEL TRAINING ---
+    # Standard XGBoost config from the Bent et al. methodology
+    model = xgb.XGBClassifier(
+        n_estimators=100, 
+        max_depth=6, 
+        learning_rate=0.1, 
+        random_state=42,
+        objective='multi:softprob'
+    )
     model.fit(X_train, y_train)
-    
-    # 7. Results
-    print("\n" + "="*50)
-    print("BALANCED PASSIVE SENSOR RESULTS")
-    print("="*50)
+
+    # --- EVALUATION ---
     y_pred = model.predict(X_test)
+    
+    print("\n" + "="*60)
+    print("XGBOOST CLASSIFICATION REPORT (Modular Workflow)")
+    print("="*60)
     print(classification_report(y_test, y_pred, target_names=le.classes_))
     
-    # Balanced Accuracy Check
-    acc = accuracy_score(y_test, y_pred)
-    print(f"Overall Balanced Accuracy: {acc:.4f}")
-    
-    # Feature Importance for minimization
-    importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
-    print("\n--- FEATURE IMPORTANCE (Minimal Set Candidates) ---")
-    print(importance)
+    macro_f1 = f1_score(y_test, y_pred, average='macro')
+    print(f"FINAL MACRO F1 SCORE: {macro_f1:.4f}")
+
+    # --- FEATURE ANALYSIS ---
+    importance = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
+    print("\nTOP 10 CONTRIBUTING FEATURES:")
+    print(importance.head(10))
 
 if __name__ == "__main__":
     main()
+
+
+# -------------- OUTPUT --------------
+# Training on Balanced Dataset: 5171 samples per class (15513 total).
+
+# ============================================================
+# XGBOOST CLASSIFICATION REPORT (Modular Workflow)
+# ============================================================
+#               precision    recall  f1-score   support
+
+#     PersHigh       0.58      0.64      0.61      1034
+#      PersLow       0.58      0.65      0.62      1034
+#     PersNorm       0.59      0.45      0.51      1035
+
+#     accuracy                           0.58      3103
+#    macro avg       0.58      0.58      0.58      3103
+# weighted avg       0.58      0.58      0.58      3103
+
+# FINAL MACRO F1 SCORE: 0.5779
+
+# TOP 10 CONTRIBUTING FEATURES:
+# hr_mean_30      0.117146
+# eda_mean_5      0.056701
+# eda_mean_30     0.054357
+# ibi_mean_30     0.052684
+# hr_acc_ratio    0.045854
+# temp_mean_30    0.045704
+# acc_mean_30     0.044712
+# temp_mean_5     0.044459
+# acc_std_5       0.040481
+# bvp_std_5       0.038507
+# dtype: float32
