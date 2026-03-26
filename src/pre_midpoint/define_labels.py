@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 import os
 
+# This script calculates and defines the Pers lavels
+
+
 def process_dexcom(file_path):
     try:
         df = pd.read_csv(file_path)

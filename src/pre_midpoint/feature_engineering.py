@@ -4,8 +4,8 @@ import os
 
 def engineer_features(p_path, p_id):
     """
-    Main feature extraction pipeline. 
-    Returns a dict of series keyed by feature name for easy merging.
+    Modular feature extraction. 
+    Includes multi-scale windows and temporal lags to catch glucose delays.
     """
     def load_sensor(name):
         f_path = os.path.join(p_path, f"{name}_{p_id}.csv")
@@ -22,33 +22,40 @@ def engineer_features(p_path, p_id):
     for s_name, sdf in sensors.items():
         if sdf.empty: continue
         
-        # Helper to grab the actual data column since names vary (e.g., 'temp' vs 'value')
         cols = sdf.columns
         v_col = [c for c in cols if any(x in c for x in [s_name.lower(), 'value', 'temp', 'mag'])][0]
         
-        # Convert raw XYZ to G-force magnitude to make movement orientation-agnostic
         if s_name == "ACC" and 'acc_x' in sdf.columns:
             sdf['mag'] = np.sqrt(sdf['acc_x']**2 + sdf['acc_y']**2 + sdf['acc_z']**2)
             v_col = 'mag'
 
-        # --- FEATURE EXTRACTION BLOCK ---
-
-        # 5-min Mean: Gets the current physiological 'state' 
+        # --- CORE FEATURE MATH ---
+        
+        # 5-min Mean: The current state
         features_dict[f'{s_name.lower()}_mean_5'] = sdf[v_col].rolling('5min').mean()
         
-        # 5-min Std: Captures signal 'jitter' or instability (big for EDA/Stress)
+        # 5-min Std: Signal volatility (Stress/Activity detection)
         features_dict[f'{s_name.lower()}_std_5'] = sdf[v_col].rolling('5min').std()
         
-        # 30-min Mean: Provides long-term context to filter out momentary noise
+        # 30-min Mean: Long-term baseline context
         features_dict[f'{s_name.lower()}_mean_30'] = sdf[v_col].rolling('30min').mean()
         
-        # 10-min Slope: Calculates velocity of change (is the signal spiking or crashing?)
+        # 10-min Slope: Rate of change (Velocity)
         features_dict[f'{s_name.lower()}_slope_10'] = (sdf[v_col] - sdf[v_col].shift(1)).rolling('10min').mean()
 
-    # --- CROSS-SENSOR LOGIC ---
+    # --- ADVANCED TEMPORAL LAGS ---
+    
+    # We shift the key metrics back by 15 minutes. 
+    # This correlates PAST physiology with CURRENT glucose levels.
+    # Note: .shift(3) assumes a 5-minute sampling rate (3 * 5 = 15)
+    lag_targets = ['hr_mean_5', 'eda_mean_5', 'acc_mean_5', 'temp_mean_5']
+    for feat in lag_targets:
+        if feat in features_dict:
+            features_dict[f'{feat}_lag_15'] = features_dict[feat].shift(3)
 
-    # HR-to-ACC Ratio: Isolates 'Resting' HR spikes from 'Exercise' HR spikes
-    # Adding 0.1 to denominator to avoid division by zero errors
+    # --- CROSS-SENSOR FEATURES ---
+
+    # HR/ACC Ratio: Helps filter out 'Physical' vs 'Metabolic' heart rate spikes
     if 'hr_mean_5' in features_dict and 'acc_mean_5' in features_dict:
         features_dict['hr_acc_ratio'] = features_dict['hr_mean_5'] / (features_dict['acc_mean_5'] + 0.1)
 
