@@ -78,18 +78,34 @@ This is a **regression** model — it outputs a continuous glucose prediction in
 
 ## Current Results
 
-> Run the script yourself to generate numbers — output is printed to the terminal.
-> Results will vary slightly across machines due to parallelism, but `random_state=42` keeps the split consistent.
+Verified by running `randomForestPractice.py` on the full 16-participant dataset (36,898 EGV readings, 80/20 train/test split, `random_state=42`).
 
-The script reports three metrics:
+**Dataset summary:**
+- Total rows: 36,898
+- Hypoglycemia events (< 70 mg/dL): 211 (0.57%)
+- Hyperglycemia events (> 180 mg/dL): 656 (1.78%)
 
-| Metric                             | What it measures                                    | Ideal value             |
-| ---------------------------------- | --------------------------------------------------- | ----------------------- |
-| **MAE** (Mean Absolute Error)      | Average mg/dL error per prediction                  | Lower is better         |
-| **RMSE** (Root Mean Squared Error) | Like MAE but penalises large errors more heavily    | Lower is better         |
-| **R² Score**                       | Fraction of glucose variance explained by the model | Closer to 1.0 is better |
+**Model performance (test set):**
 
-The script also prints the **top 10 feature importances** — which features the forest relied on most.
+| Metric | Value | What it means |
+| ---------------------------------- | ------- | --------------------------------------------------- |
+| **MAE** (Mean Absolute Error)      | 6.97 mg/dL | On average, predictions are off by ~7 mg/dL |
+| **RMSE** (Root Mean Squared Error) | 12.45 mg/dL | Larger errors are penalised more; gap vs MAE suggests some outlier readings |
+| **R² Score**                       | 0.708 | Model explains ~71% of glucose variance |
+
+**Feature importances (ranked):**
+
+| Rank | Feature | Importance |
+| ---- | -------------- | ---------- |
+| 1 | `hour` | 0.3261 |
+| 2 | `day_of_week` | 0.2247 |
+| 3 | `minute` | 0.1640 |
+| 4 | `participant_id` | 0.1204 |
+| 5 | `HbA1c` | 0.0995 |
+| 6 | `Gender_FEMALE` | 0.0351 |
+| 7 | `Gender_MALE` | 0.0302 |
+
+**Takeaway:** Time-of-day features (`hour`, `minute`, `day_of_week`) dominate, accounting for ~71% of the model's decisions. This suggests glucose follows strong daily rhythms in this dataset. `participant_id` ranking 4th indicates meaningful between-person variation that the model is capturing.
 
 ---
 
