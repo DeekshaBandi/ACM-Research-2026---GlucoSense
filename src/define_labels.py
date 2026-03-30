@@ -24,9 +24,11 @@ def process_dexcom(file_path):
         glucose_df['Glucose'] = pd.to_numeric(glucose_df['Glucose'], errors='coerce')
         glucose_df = glucose_df.dropna(subset=['Glucose']).sort_values('Timestamp')
         
-        # Personalized Thresholds (Rolling 24h)
+        # Personalized Thresholds (Rolling 7-day baseline to stabilize labels)
         glucose_df = glucose_df.set_index('Timestamp')
-        rolling = glucose_df['Glucose'].rolling(window='24h')
+        # Fix 6: Stabilize label definitions using a rolling baseline instead of global mean/std
+        # Rolling baseline prevents label leakage by using only past data
+        rolling = glucose_df['Glucose'].rolling(window='7D', closed='left', min_periods=1)
         
         glucose_df['Rolling_Mean'] = rolling.mean()
         glucose_df['Rolling_Std'] = rolling.std()

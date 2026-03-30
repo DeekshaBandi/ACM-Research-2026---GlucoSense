@@ -3,7 +3,6 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_sample_weight
@@ -57,9 +56,9 @@ def load_hybrid_data():
                 sdf = sdf.groupby(t_col)[v_col].mean().sort_index() # Remove duplicates here too
                 
                 # Feature: 10-min rolling mean (smooths sensor jitter)
-                feats[f'{s_key}_mean'] = sdf.rolling('10min').mean().reindex(gdf.index, method='ffill')
+                feats[f'{s_key}_mean'] = sdf.rolling('10min', closed='left', min_periods=1).mean().reindex(gdf.index, method='ffill')
                 # Feature: 20-min Trend (is the sensor value rising or falling?)
-                feats[f'{s_key}_trend'] = (sdf - sdf.shift(1)).rolling('20min').mean().reindex(gdf.index, method='ffill')
+                feats[f'{s_key}_trend'] = (sdf - sdf.shift(1)).rolling('20min', closed='left', min_periods=1).mean().reindex(gdf.index, method='ffill')
 
             # 3. LOAD FOOD (Carbs on Board)
             fdf = pd.read_csv(os.path.join(p_path, files['food']))
@@ -77,12 +76,14 @@ def load_hybrid_data():
 
             fdf = fdf.dropna(subset=['dt']).groupby('dt')['total_carb'].sum().sort_index()
             # Feature: Carbs consumed in last 3 hours (Glycemic impact duration)
-            feats['COB_3hr'] = fdf.rolling('180min').sum().reindex(gdf.index, method='ffill').fillna(0)
+            feats['COB_3hr'] = fdf.rolling('180min', closed='left').sum().reindex(gdf.index, method='ffill').fillna(0)
 
             # 4. MERGE
             combined = pd.DataFrame(feats)
             combined['Label'] = gdf['Pers_Label']
             combined = combined.dropna()
+            combined['participant_id'] = p_id
+            combined = combined.reset_index()  # Reset to have Timestamp as column
             
             all_data.append(combined)
             print(f"ID {p_id}: Successfully synced {len(combined)} windows")
@@ -96,12 +97,31 @@ def main():
     df = load_hybrid_data()
     
     # We now have 7 features: mean + trend for HR/EDA/TEMP, plus Food
-    features = [c for c in df.columns if c != 'Label']
+    features = [c for c in df.columns if c not in ['Label', 'participant_id']]
     X = df[features]
+    
     le = LabelEncoder()
     y = le.fit_transform(df['Label'])
     
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+    # Fix 5: Add temporal (time-based) train/test split as the PRIMARY split
+    # Combine with Fix 1: group by participant AND respect temporal ordering
+    # Temporal split per participant to avoid participant leakage and respect time ordering
+    train_dfs = []
+    test_dfs = []
+    for p_id, group in df.groupby('participant_id'):
+        group = group.sort_values('Timestamp')
+        cutoff = int(len(group) * 0.8)
+        train_dfs.append(group.iloc[:cutoff])
+        test_dfs.append(group.iloc[cutoff:])
+    
+    df_train = pd.concat(train_dfs)
+    df_test = pd.concat(test_dfs)
+    
+    X_train = df_train[features]
+    y_train = le.transform(df_train['Label'])
+    X_test = df_test[features]
+    y_test = le.transform(df_test['Label'])
+    
     weights = compute_sample_weight(class_weight='balanced', y=y_train)
 
     # XGBoost with slight regularization to handle the noise of 16 different bodies

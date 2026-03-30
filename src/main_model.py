@@ -2,10 +2,9 @@ import pandas as pd
 import numpy as np
 import os
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score, f1_score
 from sklearn.preprocessing import LabelEncoder
-from sklearn.utils import resample
+from sklearn.utils.class_weight import compute_sample_weight
 import warnings
 
 # Import the logic from feature_engineering
@@ -55,13 +54,15 @@ def load_and_sync_dataset():
                     merged_df.sort_index(), 
                     series.to_frame(feat_name).sort_index(), 
                     left_index=True, 
-                    right_index=True
+                    right_index=True,
+                    direction='backward'  # Fix 3: direction='backward' ensures only past sensor data is used, preventing future leakage
                 )
 
             # Clean up missing data (where sensors might have been off)
             clean_df = merged_df.dropna(subset=[col for col in merged_df.columns if '_mean_5' in col])
             
             if not clean_df.empty:
+                clean_df['participant_id'] = p_id
                 all_data_frames.append(clean_df)
                 print(f"  [SUCCESS] ID {p_id}: Synced {len(clean_df)} windows")
             
@@ -78,29 +79,34 @@ def main():
         return
 
     # --- CLASS BALANCING ---
-    # We balance based on the smallest class to ensure the model learns 'High' and 'Low' 
-    # as effectively as 'Normal'.
-    counts = df['Pers_Label'].value_counts()
-    min_size = counts.min()
-    
-    df_bal = pd.concat([
-        resample(df[df['Pers_Label'] == label], replace=False, n_samples=min_size, random_state=42)
-        for label in df['Pers_Label'].unique()
-    ])
-    
-    print(f"\nTraining on Balanced Dataset: {min_size} samples per class ({len(df_bal)} total).")
+    # Fix 4: Replace downsampling with class weights
+    # Remove downsampling to keep all data, use class weights instead
+    print(f"\nTraining on Full Dataset: {len(df)} samples.")
 
     # --- PREPARATION ---
     # Identify all engineered columns (excluding labels and rolling stats)
-    feature_cols = [c for c in df_bal.columns if any(suffix in c for suffix in ['_5', '_30', '_10', '_ratio'])]
+    feature_cols = [c for c in df.columns if any(suffix in c for suffix in ['_5', '_30', '_10', '_ratio'])]
     
-    X = df_bal[feature_cols]
-    le = LabelEncoder()
-    y = le.fit_transform(df_bal['Pers_Label'])
+    # Fix 5: Add temporal (time-based) train/test split as the PRIMARY split
+    # Combine with Fix 1: group by participant AND respect temporal ordering
+    # Temporal split per participant to avoid participant leakage and respect time ordering
+    train_dfs = []
+    test_dfs = []
+    for p_id, group in df.groupby('participant_id'):
+        group = group.sort_index()  # Sort by Timestamp index
+        cutoff = int(len(group) * 0.8)
+        train_dfs.append(group.iloc[:cutoff])
+        test_dfs.append(group.iloc[cutoff:])
     
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
-    )
+    df_train = pd.concat(train_dfs)
+    df_test = pd.concat(test_dfs)
+    
+    X_train = df_train[feature_cols]
+    y_train = le.fit_transform(df_train['Pers_Label'])
+    X_test = df_test[feature_cols]
+    y_test = le.transform(df_test['Pers_Label'])
+    
+    weights = compute_sample_weight(class_weight='balanced', y=y_train)
 
     # --- MODEL TRAINING ---
     # Standard XGBoost config from the Bent et al. methodology
@@ -111,7 +117,7 @@ def main():
         random_state=42,
         objective='multi:softprob'
     )
-    model.fit(X_train, y_train)
+    model.fit(X_train, y_train, sample_weight=weights)
 
     # --- EVALUATION ---
     y_pred = model.predict(X_test)

@@ -34,16 +34,16 @@ def engineer_features(p_path, p_id):
         # --- FEATURE EXTRACTION BLOCK ---
 
         # 5-min Mean: Gets the current physiological 'state' 
-        features_dict[f'{s_name.lower()}_mean_5'] = sdf[v_col].rolling('5min').mean()
+        features_dict[f'{s_name.lower()}_mean_5'] = sdf[v_col].rolling('5min', closed='left', min_periods=1).mean()
         
         # 5-min Std: Captures signal 'jitter' or instability (big for EDA/Stress)
-        features_dict[f'{s_name.lower()}_std_5'] = sdf[v_col].rolling('5min').std()
+        features_dict[f'{s_name.lower()}_std_5'] = sdf[v_col].rolling('5min', closed='left', min_periods=1).std()
         
         # 30-min Mean: Provides long-term context to filter out momentary noise
-        features_dict[f'{s_name.lower()}_mean_30'] = sdf[v_col].rolling('30min').mean()
+        features_dict[f'{s_name.lower()}_mean_30'] = sdf[v_col].rolling('30min', closed='left', min_periods=1).mean()
         
         # 10-min Slope: Calculates velocity of change (is the signal spiking or crashing?)
-        features_dict[f'{s_name.lower()}_slope_10'] = (sdf[v_col] - sdf[v_col].shift(1)).rolling('10min').mean()
+        features_dict[f'{s_name.lower()}_slope_10'] = (sdf[v_col] - sdf[v_col].shift(1)).rolling('10min', closed='left', min_periods=1).mean()
 
     # --- CROSS-SENSOR LOGIC ---
 
