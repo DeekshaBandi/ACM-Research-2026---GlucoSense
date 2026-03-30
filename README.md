@@ -92,27 +92,27 @@ Class distribution (after label generation):
 Cross-validation performance:
 | Fold | Balanced Accuracy |
 |---|---|
-| 0 | 0.4963 |
-| 1 | 0.5244 |
-| 2 | 0.4434 |
-| **Overall** | **0.4877** |
+| 0 | 0.4095 |
+| 1 | 0.4467 |
+| 2 | 0.4193 |
+| **Overall** | **0.4267** |
 
 Per-class metrics (out-of-fold predictions):
 | Class | Precision | Recall | F1 |
 |---|---|---|---|
-| PersHigh | 0.27 | 0.47 | 0.35 |
-| PersLow | 0.24 | 0.49 | 0.32 |
-| PersNorm | 0.79 | 0.51 | 0.62 |
-| **Macro avg** | 0.44 | 0.49 | **0.43** |
+| PersHigh | 0.18 | 0.52 | 0.27 |
+| PersLow | 0.23 | 0.45 | 0.30 |
+| PersNorm | 0.79 | 0.31 | 0.45 |
+| **Macro avg** | 0.40 | 0.43 | **0.34** |
 
 Confusion matrix (rows = true, columns = predicted — High / Low / Norm):
 ```
-[[ 2545  1072  1821],
- [ 1057  2405  1468],
- [ 5653  6567 12582]]
+[[ 2820  1299  1319],
+ [ 1922  2212   796],
+ [10855  6186  7761]]
 ```
 
-**Takeaway:** The model detects excursions better than random chance (balanced accuracy ~0.49 vs. 0.33 for a 3-class random baseline), but excursion recall is dragged down by a large number of PersNorm samples being misclassified as excursions. The macro F1 of 0.43 leaves significant room for improvement.
+**Takeaway:** The model detects excursions at above-random recall (~0.43 balanced accuracy vs. 0.33 baseline), but precision is very low for both excursion classes — meaning most predicted excursions are false alarms. PersNorm recall collapses to 0.31 because the model over-predicts excursions when class weights are applied. Macro F1 of 0.34 is the primary target to improve.
 
 ---
 
