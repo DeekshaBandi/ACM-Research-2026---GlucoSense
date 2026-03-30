@@ -125,6 +125,42 @@ Every participant appears in both train and test. The model learns each person's
 
 ---
 
+## Sensor Ablation Study
+
+Run with `sensor_ablation.py`. Uses a proper **temporal split** (train on first 80% of readings by time, test on last 20%) and tests 9 configurations of wearable sensor subsets. All models include baseline time + demographic features, so results reflect the *added value* of each sensor group.
+
+**Results (16 participants, temporal split):**
+
+| Configuration | MAE (mg/dL) | RMSE (mg/dL) | R² |
+|---|---|---|---|
+| Baseline (time + demographics, no wearables) | 20.53 | 27.09 | -0.6863 |
+| HR / IBI only | 17.35 | 23.23 | -0.1200 |
+| Accelerometer only | 18.01 | 23.69 | -0.1389 |
+| EDA only | 17.99 | 23.81 | -0.1505 |
+| Temperature only | 19.04 | 25.23 | -0.2911 |
+| **HR + Accelerometer** | **16.83** | **22.62** | **-0.0624** |
+| HR + EDA | 17.26 | 22.94 | -0.0922 |
+| Accelerometer + EDA | 17.82 | 23.55 | -0.1253 |
+| All wearable modalities | 17.34 | 23.13 | -0.1106 |
+
+**Key findings:**
+
+1. **All R² values are negative.** A negative R² means the model performs worse than simply predicting the mean glucose every time. This is the honest result from a proper temporal split — future glucose is genuinely hard to predict from these features alone, and Vedant's R²=0.71 was an artifact of data leakage.
+
+2. **HR + Accelerometer is the best combination** — lowest MAE (16.83 mg/dL) and closest R² to zero (-0.06). Motion and heart rate together carry the most signal.
+
+3. **HR / IBI alone is the best single modality** — MAE=17.35, meaningfully better than temperature (19.04) and the no-sensor baseline (20.53).
+
+4. **Temperature adds little** — worst single sensor and doesn't improve any multi-sensor combo it's added to. "All modalities" (22 features) underperforms "HR + Accelerometer" (18 features).
+
+5. **The baseline (time + demographics) performs worst of all** — MAE=20.53, R²=-0.69. Without sensor data, time-of-day patterns alone do not generalize to future readings.
+
+**Is the original Vedant approach still worth keeping?**
+
+Yes, as a **baseline and comparison track**, but not as a standalone result. It shows the upper bound of what time + demographic features can do *when leakage is present*, and serves as a reference point for future improvements. Any new model should be benchmarked against the honest temporal-split baseline (MAE=20.53) rather than the leaked R²=0.71 number.
+
+---
+
 ## Metric Explanations
 
 ### MAE — Mean Absolute Error
@@ -172,12 +208,20 @@ The script auto-discovers all `DESTINATION/*/Dexcom_*.csv` files relative to its
 ```
 ACM-Research-2026---GlucoSense/
 ├── DESTINATION/                  # Raw dataset (not committed)
-│   ├── 001/Dexcom_1.csv
-│   ├── ...
-│   ├── 016/Dexcom_16.csv
+│   ├── 001/
+│   │   ├── Dexcom_001.csv        # CGM glucose readings
+│   │   ├── HR_001.csv            # Heart rate (1 Hz)
+│   │   ├── IBI_001.csv           # Inter-beat interval (irregular)
+│   │   ├── ACC_001.csv           # Accelerometer x/y/z (32 Hz)
+│   │   ├── EDA_001.csv           # Electrodermal activity (4 Hz)
+│   │   ├── TEMP_001.csv          # Skin temperature (4 Hz)
+│   │   └── BVP_001.csv           # Blood volume pulse (64 Hz)
+│   ├── 002/ … 016/
 │   └── Demographics.csv
-├── randomForestPractice.py       # Vedant's RF regression pipeline
-├── results/                      # Output plots
-│   └── excursion_roc_curve.png   # ROC curves from classification experiments
+├── randomForestPractice.py       # Vedant's original RF regression (Dexcom + demographics only)
+├── sensor_ablation.py            # Sensor ablation across wearable modalities (temporal split)
+├── results/
+│   ├── sensor_ablation_results.csv
+│   └── excursion_roc_curve.png
 └── README.md
 ```

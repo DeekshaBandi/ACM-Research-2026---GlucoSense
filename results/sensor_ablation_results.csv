@@ -1,0 +1,10 @@
+Configuration,MAE (mg/dL),RMSE (mg/dL),R²,# Features,Test rows
+"Baseline (time + demographics, no wearables)",20.531,27.086,-0.6863,6,7380
+HR / IBI only,17.352,23.229,-0.12,10,4678
+Accelerometer only,18.012,23.694,-0.1389,14,5003
+EDA only,17.987,23.814,-0.1505,8,5003
+Temperature only,19.039,25.227,-0.2911,8,5003
+HR + Accelerometer,16.827,22.624,-0.0624,18,4678
+HR + EDA,17.255,22.939,-0.0922,12,4678
+Accelerometer + EDA,17.819,23.552,-0.1253,16,5003
+All wearable modalities,17.337,23.131,-0.1106,22,4678
