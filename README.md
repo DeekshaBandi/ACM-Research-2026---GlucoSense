@@ -116,6 +116,58 @@ Confusion matrix (rows = true, columns = predicted — High / Low / Norm):
 
 ---
 
+## Sensor Ablation Study
+
+Each condition uses the same XGBoost + Group K-Fold setup. Food-log features (`carbs_3h`, `time_since_last_meal_min`) are included in all conditions **except** `all_wearable_no_food`, which tests sensors alone.
+
+Results sorted by macro F1:
+
+| Condition | Features | Balanced Acc | Macro F1 | F1 PersHigh | F1 PersLow | F1 PersNorm |
+|---|---|---|---|---|---|---|
+| all_wearable_no_food | HR, IBI, EDA, Temp, BVP, ACC | **0.4259** | **0.3403** | 0.2660 | 0.3033 | 0.4514 |
+| all_wearable | HR, IBI, EDA, Temp, BVP, ACC + food | 0.4236 | 0.3384 | 0.2654 | 0.3003 | 0.4494 |
+| temp_only | Temp + food | 0.3812 | 0.3159 | 0.2248 | 0.2565 | 0.4663 |
+| hr_ibi_acc | HR, IBI, ACC + food | 0.4119 | 0.3142 | 0.2565 | 0.2871 | 0.3990 |
+| hr_ibi_eda | HR, IBI, EDA + food | 0.4118 | 0.3115 | 0.2598 | 0.2921 | 0.3827 |
+| acc_eda | ACC, EDA + food | 0.3953 | 0.3064 | 0.2508 | 0.2741 | 0.3942 |
+| hr_ibi_only | HR, IBI + food | 0.4127 | 0.3062 | 0.2584 | 0.2850 | 0.3750 |
+| acc_only | ACC + food | 0.3781 | 0.3053 | 0.2191 | 0.2662 | 0.4307 |
+| bvp_only | BVP + food | 0.3481 | 0.2986 | 0.2423 | 0.1851 | 0.4683 |
+| eda_only | EDA + food | 0.3677 | 0.2663 | 0.2626 | 0.2199 | 0.3165 |
+
+Run with: `python sensor_ablation.py`. Raw results saved to `results/sensor_ablation.json`.
+
+### Key Findings
+
+**1. All sensors together is best — but only marginally.**
+`all_wearable` (macro F1 0.338) barely outperforms `hr_ibi_acc` (0.314) and `hr_ibi_eda` (0.312). Adding more sensors yields diminishing returns in this linear-feature regime.
+
+**2. Food log features add essentially nothing.**
+`all_wearable_no_food` (F1 0.340) slightly *outperforms* `all_wearable` (F1 0.338). The carbohydrate rolling sum and time-since-meal features do not improve excursion detection over sensors alone under the current feature engineering. This is likely because: (a) food logs are incomplete/self-reported, and (b) the 5-minute mean aggregation flattens the post-meal glucose spike dynamics.
+
+**3. HR + IBI is the most efficient single-modality pair.**
+`hr_ibi_only` (F1 0.306, balanced acc 0.413) performs comparably to the full sensor set despite using only 2 signals (+ food). It achieves higher balanced accuracy than most combinations. This makes it a strong candidate for a reduced-sensor deployment.
+
+**4. BVP and EDA are the weakest individual modalities.**
+`bvp_only` (F1 0.299) and `eda_only` (F1 0.266) perform near or below random on excursion detection individually. EDA's poor solo performance is notable given its use in stress detection; it may require richer temporal features (e.g., SCR peaks) rather than 5-minute means.
+
+**5. Temperature is surprisingly competitive as a single sensor.**
+`temp_only` achieves macro F1 0.316 — higher than HR+IBI and most multi-sensor combinations — but this is largely driven by PersNorm F1 (0.47), not excursion detection. Its balanced accuracy (0.381) is lower than HR+IBI, meaning it misses more true excursions.
+
+### Is the Original Approach Worth Pursuing?
+
+**Yes, as a baseline — but it has a hard ceiling with current features.**
+
+The original `all_wearable` XGBoost model (macro F1 0.34, balanced acc 0.43) is a valid baseline for comparing against future improvements. The split is methodologically sound (no participant leakage). However, the ablation reveals that the performance gap between using 2 sensors and 6 sensors is only ~0.03 F1 points, which strongly suggests the **bottleneck is feature representation, not sensor coverage**.
+
+Recommended next steps that are likely to move the needle more than adding sensors:
+- **Temporal features**: rolling statistics (mean, SD, slope) over 15/30/60-minute windows per sensor, rather than raw 5-minute means
+- **HRV features**: RMSSD, SDNN computed from IBI rather than mean IBI
+- **EDA peak detection**: SCR count and amplitude rather than tonic mean
+- **Post-meal dynamics**: glucose rate-of-change (ΔG/Δt) or lagged sensor features relative to meal events
+
+---
+
 ## Metric Explanations
 
 **Accuracy** — fraction of all predictions that are correct. Misleading here because ~70% of data is PersNorm; a model that always predicts PersNorm scores 70% accuracy while being useless for detecting excursions.
@@ -136,13 +188,21 @@ It balances both concerns. A macro F1 averages F1 equally across all classes, gi
 
 ```
 src/
-  config.py      — data path, resampling rule, label parameters, XGBoost hyperparameters
-  io_utils.py    — CSV readers and 5-minute resampler
-  features.py    — feature table construction and label generation
-  train.py       — dataset builder, cross-validation loop, result printing
+  config.py           — data path, resampling rule, label parameters, XGBoost hyperparameters
+  io_utils.py         — CSV readers and 5-minute resampler
+  features.py         — feature table construction and label generation
+  train.py            — dataset builder, cross-validation loop, result printing
+sensor_ablation.py    — sensor subset ablation study (produces results/sensor_ablation.json)
+results/
+  sensor_ablation.json — ablation results (all conditions, all metrics)
 ```
 
-To run:
+Run baseline:
 ```bash
 python -m src.train
+```
+
+Run sensor ablation:
+```bash
+python sensor_ablation.py
 ```
