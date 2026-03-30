@@ -109,6 +109,22 @@ Verified by running `randomForestPractice.py` on the full 16-participant dataset
 
 ---
 
+## Known Issues with the Current Split
+
+> **These results should be treated as optimistic.** The current evaluation has two leakage problems that inflate MAE, RMSE, and R².
+
+**1. Temporal leakage**
+Random shuffling lets the model train on readings from t−5min and t+5min while predicting t. Since glucose changes slowly, it's essentially interpolating between neighbors rather than forecasting. Metrics are inflated.
+
+**2. Participant leakage**
+Every participant appears in both train and test. The model learns each person's glucose baseline from their training rows, making their test rows trivially easy to predict. This is why `participant_id` ranks 4th in feature importance.
+
+**Suggested fix:** Sort by timestamp, then take the last 20% as the test set. The model trains on earlier data and predicts genuinely unseen future readings.
+
+**Expected result:** MAE/RMSE go up, R² goes down — not because the model got worse, but because the current numbers were too optimistic.
+
+---
+
 ## Metric Explanations
 
 ### MAE — Mean Absolute Error
