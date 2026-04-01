@@ -226,3 +226,36 @@ if __name__ == "__main__":
 # --- Finished Participant 016 ---
 # Total Valid Days: 8
 # ------------------------------
+
+
+# Latest output
+
+# Starting BVP-Optional extraction for 16 participants...
+# [SUCCESS] Saved P001.csv with 10 days.
+# Discarding 002 on 2020-02-29: Insufficient overlap (0 days 04:37:54.263252)
+# [SUCCESS] Saved P002.csv with 8 days.
+# [SUCCESS] Saved P003.csv with 8 days.
+# Discarding 004 on 2020-02-28: Insufficient overlap (0 days 04:14:19.354736)
+# Discarding 004 on 2020-02-29: Insufficient overlap (0 days 04:51:39.574764)
+# [SUCCESS] Saved P004.csv with 7 days.
+# [SUCCESS] Saved P005.csv with 10 days.
+# Discarding 006 on 2020-03-09: Insufficient overlap (0 days 02:04:54.405553)
+# [SUCCESS] Saved P006.csv with 8 days.
+# [SUCCESS] Saved P007.csv with 9 days.
+# [SUCCESS] Saved P008.csv with 10 days.
+# [SUCCESS] Saved P009.csv with 9 days.
+# [SUCCESS] Saved P010.csv with 9 days.
+# Discarding 011 on 2020-04-16: Insufficient overlap (0 days 03:51:58.934007)
+# [SUCCESS] Saved P011.csv with 9 days.
+# [SUCCESS] Saved P012.csv with 9 days.
+# Discarding 013 on 2020-06-06: Insufficient overlap (0 days 00:39:32.483598)
+# [SUCCESS] Saved P013.csv with 9 days.
+# Discarding 014 on 2020-06-06: Insufficient overlap (0 days 01:24:14.354630)
+# [SUCCESS] Saved P014.csv with 7 days.
+# [SUCCESS] Saved P015.csv with 8 days.
+# [SUCCESS] Saved P016.csv with 8 days.
+
+# ==============================
+# FINAL AUDIT COMPLETE
+# Total Participant-Days Engineered: 138
+# ==============================
