@@ -1,108 +1,76 @@
-﻿[INFO] CGM metrics not found. Auto-merging CGM + Wearable data...
+[INFO] CGM metrics not found. Auto-merging CGM + Wearable data...
 [OK] Merged: 134 rows, 41 columns
-Data shapes:
-  X_train (80, 171) y_train (80,)
-  X_val (27, 171) y_val (27,)
-  X_test (27, 171) y_test (27,)
-Class distribution (train):
+Dataset: 134 samples, 171 features, 16 subjects
+Class distribution:
 label_cv_numeric
-0    0.6125
-1    0.3875
+0    0.61194
+1    0.38806
 Name: proportion, dtype: float64
 
-Applying SMOTE to training data...
-  After SMOTE: 98 samples
-  Class distribution after SMOTE:
-label_cv_numeric
-0    0.5
-1    0.5
-Name: proportion, dtype: float64
+=== Leave-One-Subject-Out Cross-Validation ===
+  Subject 001: F1=1.0000, Acc=1.0000, n=10
+  Subject 002: F1=0.8571, Acc=0.8750, n=8
+  Subject 003: F1=0.8571, Acc=0.8750, n=8
+  Subject 004: F1=1.0000, Acc=1.0000, n=7
+  Subject 005: F1=1.0000, Acc=1.0000, n=10
+  Subject 006: F1=1.0000, Acc=1.0000, n=8
+  Subject 007: F1=0.6667, Acc=0.7778, n=9
+  Subject 008: F1=0.0000, Acc=0.8000, n=10
+  Subject 009: F1=0.8333, Acc=0.7778, n=9
+  Subject 010: F1=1.0000, Acc=1.0000, n=9
+  Subject 011: F1=0.9231, Acc=0.8889, n=9
+  Subject 012: F1=0.5000, Acc=0.7778, n=9
+  Subject 013: F1=0.8571, Acc=0.8750, n=8
+  Subject 014: F1=1.0000, Acc=1.0000, n=7
+  Subject 015: F1=1.0000, Acc=1.0000, n=5
+  Subject 016: F1=0.0000, Acc=0.5000, n=8
 
-=== Feature Importance ===
-          feature  importance
-2      sd_glucose    0.152625
-3            mage    0.077313
-4     tir_percent    0.068872
-8     max_glucose    0.064293
-5     tar_percent    0.061177
-10        HR_mean    0.032319
-12        HR_90th    0.031783
-7     min_glucose    0.027206
-18      IBI_rmssd    0.026127
-1    mean_glucose    0.024375
-9   Overlap_Hours    0.024265
-17       IBI_10th    0.022679
-13        HR_10th    0.022144
-16       IBI_90th    0.021560
-29      TEMP_90th    0.017145
-11         HR_std    0.016541
-31       BVP_mean    0.015679
-30      TEMP_10th    0.015615
-24        ACC_std    0.015100
-32        BVP_std    0.015078
+LOSOCV F1  mean=0.7809  std=0.3355
+LOSOCV Acc mean=0.8842  std=0.1373
 
-=== 5-Fold Cross-Validation on Training Data ===
-F1 CV scores: [0.94987469 0.74424552 0.8989899  0.89294258 0.89473684]
-F1 CV mean: 0.8762 (+/- 0.0693)
-
-== train (balanced) performance ==
-accuracy 1.0000
-precision 1.0000
-recall 1.0000
-f1 1.0000
-roc_auc 1.0000
+=== Aggregated LOSOCV Performance ===
+accuracy  0.8806
+precision 0.8600
+recall    0.8269
+f1        0.8431
+roc_auc   0.8996
 confusion matrix
-[[49  0]
- [ 0 49]]
+[[75  7]
+ [ 9 43]]
 classification report
               precision    recall  f1-score   support
 
-           0       1.00      1.00      1.00        49
-           1       1.00      1.00      1.00        49
+           0       0.89      0.91      0.90        82
+           1       0.86      0.83      0.84        52
 
-    accuracy                           1.00        98
-   macro avg       1.00      1.00      1.00        98
-weighted avg       1.00      1.00      1.00        98
-
-
-== val performance ==
-accuracy 0.8519
-precision 0.8182
-recall 0.8182
-f1 0.8182
-roc_auc 0.9318
-confusion matrix
-[[14  2]
- [ 2  9]]
-classification report
-              precision    recall  f1-score   support
-
-           0       0.88      0.88      0.88        16
-           1       0.82      0.82      0.82        11
-
-    accuracy                           0.85        27
-   macro avg       0.85      0.85      0.85        27
-weighted avg       0.85      0.85      0.85        27
+    accuracy                           0.88       134
+   macro avg       0.88      0.87      0.87       134
+weighted avg       0.88      0.88      0.88       134
 
 
-== test performance ==
-accuracy 0.8148
-precision 0.7273
-recall 0.8000
-f1 0.7619
-roc_auc 0.9471
-confusion matrix
-[[14  3]
- [ 2  8]]
-classification report
-              precision    recall  f1-score   support
+=== Training final model on all data ===
 
-           0       0.88      0.82      0.85        17
-           1       0.73      0.80      0.76        10
+=== Feature Importance (final model) ===
+         feature  importance
+2     sd_glucose    0.155825
+3           mage    0.106531
+8    max_glucose    0.075596
+5    tar_percent    0.068307
+4    tir_percent    0.068151
+7    min_glucose    0.036115
+34      BVP_10th    0.021494
+1   mean_glucose    0.021052
+28      TEMP_std    0.020714
+24       ACC_std    0.018926
+32       BVP_std    0.018577
+20       EDA_std    0.018381
+18     IBI_rmssd    0.018127
+33      BVP_90th    0.018118
+22      EDA_10th    0.017888
+30     TEMP_10th    0.017844
+17      IBI_10th    0.015775
+13       HR_10th    0.015055
+23      ACC_mean    0.014615
+10       HR_mean    0.014281
 
-    accuracy                           0.81        27
-   macro avg       0.80      0.81      0.81        27
-weighted avg       0.82      0.81      0.82        27
-
-
-RandomForest model saved to output\rf_model_cgm.joblib
+RandomForest model saved to output\rf_model.joblib
