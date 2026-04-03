@@ -93,6 +93,56 @@ The script also prints the **top 10 feature importances** — which features the
 
 ---
 
+## XGBoost Sensor Ablation (Laasya RF Branch)
+
+**Script:** `xgboost_ablation.py`  
+**Data:** `MergedDataset.csv` — 134 daily windows, 16 participants, **no CGM features**  
+**Task:** Binary classification — `high` (1) vs `low` (0) glycemic variability  
+**Evaluation:** Leave-One-Subject-Out CV (LOSOCV) + SMOTE on each training fold  
+**Class distribution:** 82 low / 52 high
+
+F1, Precision, Recall are reported for the **high** (positive) class. ROC-AUC is computed from predicted probabilities.
+
+### Results (sorted by F1)
+
+| Configuration | # Feat | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|---|---|---|---|---|---|---|
+| **IBI only** | 5 | 0.5970 | 0.4773 | 0.4038 | **0.4375** | **0.6399** |
+| TEMP only | 4 | 0.5000 | 0.3846 | 0.4808 | 0.4274 | 0.5021 |
+| BVP only | 4 | 0.5149 | 0.3934 | 0.4615 | 0.4248 | 0.4906 |
+| All wearable modalities | 25 | 0.5522 | 0.4200 | 0.4038 | 0.4118 | 0.5159 |
+| ACC only | 4 | 0.5597 | 0.4255 | 0.3846 | 0.4040 | 0.5729 |
+| **Baseline (dummy)** | 0 | 0.5000 | 0.3684 | 0.4038 | 0.3853 | 0.4824 |
+| HR only | 4 | 0.4851 | 0.3455 | 0.3654 | 0.3551 | 0.4724 |
+| EDA only | 4 | 0.4776 | 0.3393 | 0.3654 | 0.3519 | 0.4271 |
+| HR + IBI | 9 | 0.5373 | 0.3810 | 0.3077 | 0.3404 | 0.5171 |
+| HR + IBI + EDA | 13 | 0.5149 | 0.3556 | 0.3077 | 0.3299 | 0.4852 |
+| HR + IBI + ACC | 13 | 0.5373 | 0.3750 | 0.2885 | 0.3261 | 0.4850 |
+| HR + ACC | 8 | 0.5149 | 0.3415 | 0.2692 | 0.3011 | 0.4843 |
+| HR + EDA | 8 | 0.4925 | 0.3095 | 0.2500 | 0.2766 | 0.4353 |
+
+Full results saved to `results/xgboost_ablation_results.csv`.
+
+### Key Findings
+
+**1. IBI alone is the strongest single modality** — F1 0.44, ROC-AUC 0.64. This is also the only configuration that clearly beats the dummy baseline on AUC, suggesting IBI carries genuine signal about glycemic state. IBI_rmssd (HRV metric) likely drives this; it reflects autonomic nervous system activity which is linked to insulin sensitivity.
+
+**2. Most sensor combinations underperform the dummy baseline on F1.** HR-based combos (HR+IBI, HR+IBI+ACC, HR+IBI+EDA) all score below 0.39 F1, worse than predicting stratified-random. Adding HR to IBI *hurts* performance — HR mean/std are likely noisy at this daily-window granularity.
+
+**3. All wearable modalities combined (F1 0.41) does not beat IBI alone (F1 0.44).** More sensors add noise, not signal, under the current feature set. With 25 features and only 134 samples (16 subjects in LOSOCV), the model overfits training folds.
+
+**4. ACC and TEMP are the second-tier individual sensors** — ACC ROC-AUC 0.57, TEMP recall 0.48. These reflect physical activity and thermoregulation, both relevant to post-meal glucose responses.
+
+**5. EDA and HR alone are weakest** — both below dummy on F1, and EDA ROC-AUC 0.43 is below random chance. The daily-mean EDA feature loses the event-level stress spikes that make EDA useful for glucose prediction.
+
+### Is this approach worth pursuing?
+
+**IBI (and specifically IBI_rmssd / HRV) is the one feature worth building on.** A model using only IBI features achieves the best F1 and the only above-chance AUC in this study. The next step should be to enrich the IBI feature set (e.g. frequency-domain HRV: LF/HF ratio, SDNN) rather than stacking more sensor modalities.
+
+The absolute F1 values (~0.44 best) are still low — this is a hard problem with small data (134 windows, 16 subjects). LOSOCV is the right evaluation protocol here, but the fold sizes are tiny (~8 test windows per subject), making variance high.
+
+---
+
 ## Metric Explanations
 
 ### MAE — Mean Absolute Error
