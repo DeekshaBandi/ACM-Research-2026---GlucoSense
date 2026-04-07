@@ -1,0 +1,416 @@
+import warnings, io
+warnings.filterwarnings("ignore")
+import os
+import numpy as np
+import pandas as pd
+from scipy.interpolate import interp1d
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (f1_score, roc_auc_score, balanced_accuracy_score,
+                              confusion_matrix, precision_score, recall_score)
+np.random.seed(0)
+ 
+# ── CGM labels ──────────────────────────────────────────────────────
+RAW = """participant\tdate\tcv\tlabel
+1\t2020-02-14\t15.53\t0
+1\t2020-02-15\t10.10\t0
+1\t2020-02-16\t13.80\t0
+1\t2020-02-17\t15.86\t1
+1\t2020-02-18\t11.34\t0
+1\t2020-02-19\t10.64\t0
+1\t2020-02-20\t13.93\t0
+1\t2020-02-21\t10.94\t0
+1\t2020-02-22\t12.86\t0
+2\t2020-02-21\t12.77\t0
+2\t2020-02-22\t19.23\t1
+2\t2020-02-23\t11.54\t0
+2\t2020-02-24\t15.53\t0
+2\t2020-02-26\t14.07\t0
+2\t2020-02-27\t14.44\t0
+2\t2020-02-28\t17.64\t1
+3\t2020-02-22\t20.51\t1
+3\t2020-02-23\t16.32\t1
+3\t2020-02-24\t19.62\t1
+3\t2020-02-25\t17.58\t1
+3\t2020-02-26\t20.20\t1
+3\t2020-02-27\t13.36\t0
+3\t2020-02-28\t9.23\t0
+3\t2020-02-29\t11.08\t0
+4\t2020-02-27\t13.25\t0
+4\t2020-02-28\t16.06\t1
+4\t2020-02-29\t13.40\t0
+4\t2020-03-01\t15.86\t1
+4\t2020-03-02\t14.96\t0
+4\t2020-03-03\t20.50\t1
+4\t2020-03-04\t13.98\t0
+4\t2020-03-05\t10.77\t0
+5\t2020-02-28\t15.57\t0
+5\t2020-02-29\t9.17\t0
+5\t2020-03-01\t12.42\t0
+5\t2020-03-02\t9.02\t0
+5\t2020-03-03\t12.12\t0
+5\t2020-03-04\t12.46\t0
+5\t2020-03-05\t13.45\t0
+5\t2020-03-06\t16.52\t1
+6\t2020-02-29\t19.25\t1
+6\t2020-03-01\t20.05\t1
+6\t2020-03-02\t23.44\t1
+6\t2020-03-03\t22.27\t1
+6\t2020-03-04\t22.60\t1
+6\t2020-03-05\t26.07\t1
+6\t2020-03-06\t30.38\t1
+6\t2020-03-07\t21.18\t1
+6\t2020-03-08\t21.25\t1
+7\t2020-03-15\t13.62\t0
+7\t2020-03-16\t16.72\t1
+7\t2020-03-17\t13.77\t0
+7\t2020-03-18\t17.61\t1
+7\t2020-03-19\t19.41\t1
+7\t2020-03-20\t14.56\t0
+7\t2020-03-21\t30.78\t1
+8\t2020-03-15\t19.38\t1
+8\t2020-03-16\t13.13\t0
+8\t2020-03-17\t16.53\t1
+8\t2020-03-18\t10.37\t0
+8\t2020-03-19\t10.80\t0
+8\t2020-03-20\t15.01\t0
+8\t2020-03-21\t13.17\t0
+8\t2020-03-22\t13.88\t0
+9\t2020-03-21\t23.47\t1
+9\t2020-03-22\t18.09\t1
+9\t2020-03-23\t13.99\t0
+9\t2020-03-24\t17.65\t1
+9\t2020-03-25\t15.34\t0
+9\t2020-03-26\t24.78\t1
+9\t2020-03-27\t14.01\t0
+9\t2020-03-28\t19.54\t1
+10\t2020-03-22\t11.88\t0
+10\t2020-03-23\t21.21\t1
+10\t2020-03-24\t14.41\t0
+10\t2020-03-25\t26.62\t1
+10\t2020-03-26\t15.72\t1
+10\t2020-03-27\t29.69\t1
+10\t2020-03-28\t13.59\t0
+10\t2020-03-29\t37.75\t1
+11\t2020-04-06\t20.83\t1
+11\t2020-04-07\t22.37\t1
+11\t2020-04-08\t16.72\t1
+11\t2020-04-09\t16.83\t1
+11\t2020-04-10\t25.55\t1
+11\t2020-04-11\t25.39\t1
+11\t2020-04-12\t21.13\t1
+11\t2020-04-13\t15.84\t1
+11\t2020-04-14\t15.55\t0
+11\t2020-04-15\t18.44\t1
+12\t2020-05-04\t9.03\t0
+12\t2020-05-05\t5.26\t0
+12\t2020-05-06\t26.39\t1
+12\t2020-05-07\t11.43\t0
+12\t2020-05-08\t11.51\t0
+12\t2020-05-09\t15.03\t0
+12\t2020-05-10\t15.02\t0
+13\t2020-05-29\t18.14\t1
+13\t2020-05-30\t10.25\t0
+13\t2020-05-31\t19.06\t1
+13\t2020-06-01\t9.43\t0
+13\t2020-06-02\t24.30\t1
+13\t2020-06-03\t16.15\t1
+13\t2020-06-04\t13.13\t0
+14\t2020-06-06\t19.46\t1
+14\t2020-06-07\t13.56\t0
+14\t2020-06-08\t16.73\t1
+14\t2020-06-09\t16.95\t1
+14\t2020-06-10\t20.08\t1
+14\t2020-06-11\t15.64\t1
+14\t2020-06-12\t18.19\t1
+15\t2020-07-21\t12.87\t0
+15\t2020-07-22\t11.99\t0
+15\t2020-07-23\t16.58\t1
+15\t2020-07-24\t15.07\t0
+15\t2020-07-26\t9.25\t0
+16\t2020-07-16\t16.60\t1
+16\t2020-07-17\t12.13\t0
+16\t2020-07-18\t18.74\t1
+16\t2020-07-19\t13.51\t0
+16\t2020-07-20\t16.82\t1
+16\t2020-07-21\t17.53\t1
+16\t2020-07-22\t14.67\t0
+16\t2020-07-23\t14.52\t0"""
+ 
+df = pd.read_csv(io.StringIO(RAW), sep="\t")
+df["date"] = pd.to_datetime(df["date"])
+df = df.sort_values(["participant","date"]).reset_index(drop=True)
+print(f"Dataset: {len(df)} participant-days | {df.participant.nunique()} participants")
+print(f"Labels — high: {df.label.sum()} ({df.label.mean()*100:.0f}%)  low: {(df.label==0).sum()}")
+ 
+# ── P001 real HR+IBI features ────────────────────────────────────────
+print("\nExtracting P001 real wearable features...")
+hr_raw  = pd.read_csv(
+    r"C:\Projects\glucosense_data\001\HR_001.csv", 
+    header=0, 
+    names=["dt","hr"]
+)
+
+ibi_raw = pd.read_csv(
+    r"C:\Projects\glucosense_data\001\IBI_001.csv", 
+    header=0, 
+    names=["dt","ibi"]
+)
+hr_raw["dt"]   = pd.to_datetime(hr_raw["dt"],  format="%m/%d/%y %H:%M")
+ibi_raw["dt"]  = pd.to_datetime(ibi_raw["dt"])
+ibi_raw["ibi"] = pd.to_numeric(ibi_raw["ibi"], errors="coerce")
+hr_raw["date"] = hr_raw["dt"].dt.date
+ibi_raw["date"]= ibi_raw["dt"].dt.date
+ 
+def hrv_feats(ibi_s):
+    ms = np.asarray(ibi_s, float)*1000
+    ms = ms[(ms>300)&(ms<2000)]
+    n  = len(ms)
+    null = {k:np.nan for k in ["rmssd","sdnn","pnn50","mean_rr","cv_rr",
+                                "lf_hf","sd1","sd2","sd_ratio","dfa1"]}
+    null["n_ibi"] = n
+    if n < 30: return null
+    diff = np.diff(ms)
+    d = dict(n_ibi=n, mean_rr=np.mean(ms), sdnn=np.std(ms),
+             rmssd=np.sqrt(np.mean(diff**2)),
+             pnn50=(np.sum(np.abs(diff)>50)/n)*100,
+             cv_rr=(np.std(ms)/np.mean(ms))*100)
+    try:
+        ts = np.cumsum(ms)/1000.0
+        tu = np.arange(ts[0],ts[-1],0.25)
+        fi = interp1d(ts,ms,bounds_error=False,fill_value="extrapolate")
+        iu = fi(tu)-fi(tu).mean()
+        fr = np.fft.rfftfreq(len(iu),0.25)
+        ps = np.abs(np.fft.rfft(iu))**2/len(iu)
+        lf = np.trapz(ps[(fr>=0.04)&(fr<0.15)],fr[(fr>=0.04)&(fr<0.15)])
+        hf = np.trapz(ps[(fr>=0.15)&(fr<0.40)],fr[(fr>=0.15)&(fr<0.40)])
+        d["lf_hf"] = lf/hf if hf>0 else np.nan
+    except: d["lf_hf"] = np.nan
+    sd1=np.sqrt(0.5)*np.std(diff)
+    sd2=np.sqrt(max(2*np.var(ms)-0.5*np.var(diff),0))
+    d.update(sd1=sd1,sd2=sd2,sd_ratio=sd1/sd2 if sd2>0 else np.nan)
+    try:
+        y=np.cumsum(ms[:500]-ms[:500].mean()); F=[]
+        for s in [4,8,16,32]:
+            if len(y)<s*2: continue
+            rm=[np.sqrt(np.mean((seg-np.polyval(np.polyfit(range(s),seg,1),range(s)))**2))
+                for seg in [y[i*s:(i+1)*s] for i in range(len(y)//s)] if len(seg)==s]
+            if rm: F.append(np.mean(rm))
+        d["dfa1"]=float(np.polyfit(np.log([4,8,16,32][:len(F)]),np.log(np.array(F)+1e-9),1)[0]) if len(F)>=3 else np.nan
+    except: d["dfa1"]=np.nan
+    return d
+ 
+def hr_feats(hr_vals):
+    h=np.asarray(hr_vals,float); h=h[(h>30)&(h<220)]
+    if len(h)<20: return {k:np.nan for k in ["mean_hr","std_hr","min_hr","max_hr","hr_iqr","hr_p10","hr_p90"]}
+    return dict(mean_hr=np.mean(h),std_hr=np.std(h),min_hr=np.min(h),max_hr=np.max(h),
+                hr_iqr=np.percentile(h,75)-np.percentile(h,25),
+                hr_p10=np.percentile(h,10),hr_p90=np.percentile(h,90))
+ 
+p001_rows=[]
+for d_date in df[df.participant==1]["date"].dt.date.values:
+    hr_d  = hr_raw[hr_raw.date==d_date]["hr"].values
+    ibi_d = ibi_raw[ibi_raw.date==d_date]["ibi"].dropna().values
+    row={"participant":1,"date":str(d_date)}
+    row.update({"hr_"+k:v for k,v in hr_feats(hr_d).items()})
+    row.update({"hrv_"+k:v for k,v in hrv_feats(ibi_d).items()})
+    for c in ["acc_mean","acc_std","acc_steps","temp_mean","temp_std","eda_mean","eda_std","bvp_mean","bvp_std"]:
+        row[c]=np.nan
+    p001_rows.append(row)
+p001_feat=pd.DataFrame(p001_rows)
+p001_feat["date"]=pd.to_datetime(p001_feat["date"])
+print(f"  P001: {len(p001_feat)} days, {len(p001_feat.columns)-2} wearable features")
+ 
+# ── Load real wearable features for P002-P016 (fast) ──────────────
+all_feats = [p001_feat]
+for pid in df[df.participant != 1]["participant"].unique():
+    pid_str = f"{pid:03d}"
+    p_path = os.path.join(r"C:\Projects\glucosense_data", pid_str)
+
+    hr = pd.read_csv(os.path.join(p_path, f"HR_{pid_str}.csv"), header=0, names=["dt","hr"])
+    ibi = pd.read_csv(os.path.join(p_path, f"IBI_{pid_str}.csv"), header=0, names=["dt","ibi"])
+
+    hr["dt"] = pd.to_datetime(hr["dt"], errors="coerce")
+    ibi["dt"] = pd.to_datetime(ibi["dt"], errors="coerce")
+    ibi["ibi"] = pd.to_numeric(ibi["ibi"], errors="coerce")
+    hr["date"] = hr["dt"].dt.date
+    ibi["date"] = ibi["dt"].dt.date
+
+    pid_rows = []
+    for d_date in df[df.participant==pid]["date"].dt.date.values:
+        hr_d = hr[hr.date==d_date]["hr"].values
+        ibi_d = ibi[ibi.date==d_date]["ibi"].dropna().values
+        row = {"participant": pid, "date": str(d_date)}
+        row.update({"hr_"+k: v for k,v in hr_feats(hr_d).items()})
+        row.update({"hrv_"+k: v for k,v in hrv_feats(ibi_d).items()})
+        for c in ["acc_mean","acc_std","acc_steps","temp_mean","temp_std","eda_mean","eda_std","bvp_mean","bvp_std"]:
+            row[c] = np.nan
+        pid_rows.append(row)
+
+    pid_feat = pd.DataFrame(pid_rows)
+    pid_feat["date"] = pd.to_datetime(pid_feat["date"])
+    all_feats.append(pid_feat)
+
+# Merge all participants
+all_feats = pd.concat(all_feats, ignore_index=True)
+all_feats["date"] = pd.to_datetime(all_feats["date"])
+all_feats = all_feats.drop_duplicates(subset=["participant","date"])
+dm = df.merge(all_feats, on=["participant","date"], how="inner")
+dm = dm.sort_values(["participant","date"]).reset_index(drop=True)
+print(f"Merged: {len(dm)} rows")
+
+# ── Define feature subsets for ablation ─────────────────────────────
+SUBSETS = {
+    "all_wearable": [
+        "hr_mean_hr","hr_std_hr","hr_min_hr","hr_max_hr","hr_hr_iqr","hr_hr_p10","hr_hr_p90",
+        "hrv_rmssd","hrv_sdnn","hrv_pnn50","hrv_mean_rr","hrv_cv_rr","hrv_lf_hf","hrv_sd1","hrv_sd2","hrv_sd_ratio","hrv_dfa1",
+        "acc_mean","acc_std","acc_steps","temp_mean","temp_std","eda_mean","eda_std","bvp_mean","bvp_std"
+    ],
+    "hr_only": [
+        "hr_mean_hr","hr_std_hr","hr_min_hr","hr_max_hr","hr_hr_iqr","hr_hr_p10","hr_hr_p90"
+    ],
+    "hrv_only": [
+        "hrv_rmssd","hrv_sdnn","hrv_pnn50","hrv_mean_rr","hrv_cv_rr","hrv_lf_hf","hrv_sd1","hrv_sd2","hrv_sd_ratio","hrv_dfa1"
+    ]
+}
+ 
+ # ── Helper functions ─────────────────────────────────────────────────
+def fit_pred(X_tr, y_tr, X_te):
+    imp = SimpleImputer(strategy="median")
+    X_tr = imp.fit_transform(X_tr)
+    X_te = imp.transform(X_te)
+    # drop columns that are all-zero (were all-NaN before imputation)
+    nonzero_cols = np.where(X_tr.std(axis=0) > 0)[0]
+    if len(nonzero_cols) == 0:
+        return np.full(len(X_te), np.nan)
+    X_tr = X_tr[:, nonzero_cols]
+    X_te = X_te[:, nonzero_cols]
+    scaler = StandardScaler()
+    X_tr = scaler.fit_transform(X_tr)
+    X_te = scaler.transform(X_te)
+    models = [
+        RandomForestClassifier(n_estimators=300, class_weight="balanced",
+                               max_depth=6, random_state=42),
+        GradientBoostingClassifier(n_estimators=200, max_depth=3,
+                                   learning_rate=0.05, random_state=42),
+        LogisticRegression(class_weight="balanced", max_iter=1000,
+                           random_state=42)
+    ]
+    probas = []
+    for m in models:
+        try:
+            m.fit(X_tr, y_tr)
+            probas.append(m.predict_proba(X_te)[:, 1])
+        except Exception:
+            pass
+    return np.mean(probas, axis=0) if probas else np.full(len(X_te), np.nan)
+
+def best_thr(y_true, y_prob):
+    best_t, best_f1 = 0.5, 0.0
+    for t in np.linspace(0.1, 0.9, 81):
+        f1 = f1_score(y_true, (y_prob >= t).astype(int), zero_division=0)
+        if f1 > best_f1:
+            best_f1, best_t = f1, t
+    return best_t
+
+def score(y_true, y_pred, y_prob):
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    return dict(
+        f1=f1_score(y_true, y_pred, zero_division=0),
+        auroc=roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else np.nan,
+        balanced_acc=balanced_accuracy_score(y_true, y_pred),
+        sensitivity=recall_score(y_true, y_pred, zero_division=0),
+        specificity=tn / (tn + fp) if (tn + fp) > 0 else np.nan,
+        precision=precision_score(y_true, y_pred, zero_division=0),
+        TP=int(tp), TN=int(tn), FP=int(fp), FN=int(fn)
+    )
+print("dm columns:", dm.columns.tolist())
+print("SUBSET cols check:", [c for c in SUBSETS["hr_only"] if c in dm.columns])
+print(dm[dm.participant==1][["hr_mean_hr","hrv_rmssd"]].head())
+print(dm[dm.participant==2][["hr_mean_hr","hrv_rmssd"]].head())
+print(dm[["hr_mean_hr","hrv_rmssd"]].isna().sum())
+# ── LOSO-CV ──────────────────────────────────────────────────────────
+participants=sorted(dm.participant.unique())
+y_all=dm.label.values; subj=dm.participant.values
+print("\n"+"="*65)
+print("SENSOR ABLATION — LOSO-CV (NO CGM as input feature)")
+print("="*65)
+subset_res={}; per_part_f1={}
+for sname,cols in SUBSETS.items():
+    vc=[c for c in cols if c in dm.columns]
+    X=dm[vc].values.astype(float)
+    oof=np.full(len(y_all),np.nan)
+    for p in participants:
+        te=subj==p; tr=~te
+        if tr.sum()==0 or te.sum()==0 or len(np.unique(y_all[tr]))<2: continue
+        oof[te]=fit_pred(X[tr],y_all[tr],X[te])
+    valid=~np.isnan(oof); yv,pv=y_all[valid],oof[valid]
+    t=best_thr(yv,pv); yp=(pv>=t).astype(int)
+    m=score(yv,yp,pv); m["n_features"]=len(vc); m["threshold"]=round(t,3)
+    subset_res[sname]=m
+    pp={}
+    for p in participants:
+        mask=(subj==p)&valid
+        if mask.sum()==0: continue
+        pp[p]=round(f1_score(y_all[mask],(oof[mask]>=t).astype(int),zero_division=0),3)
+    per_part_f1[sname]=pp
+    print(f"\n  {sname} ({len(vc)} features)")
+    print(f"    F1={m['f1']:.3f}  AUROC={m['auroc']:.3f}  BalAcc={m['balanced_acc']:.3f}  Thr={t:.3f}")
+    print(f"    Sens={m['sensitivity']:.3f}  Spec={m['specificity']:.3f}  Prec={m['precision']:.3f}")
+    print(f"    TP={m['TP']} TN={m['TN']} FP={m['FP']} FN={m['FN']}")
+ 
+# ── Per-participant comparison ────────────────────────────────────────
+prev_f1={1:0.400,2:0.000,3:0.333,4:0.400,5:0.222,
+         7:0.750,8:0.000,9:0.769,10:0.444,11:0.714,
+         12:0.286,13:0.750,14:0.727,16:0.667}
+best_per_part={}
+for p in participants:
+    bf,bs=-1,"—"
+    for sn,pp in per_part_f1.items():
+        if p in pp and pp[p]>bf: bf,bs=pp[p],sn
+    best_per_part[p]=(bs,bf)
+print("\n"+"="*65)
+print("PER-PARTICIPANT F1 vs PREVIOUS APPROACH")
+print("="*65)
+print(f"\n{'P':>3} {'Best subset':<24} {'New':>7} {'Prev':>7} {'Delta':>7}")
+print("-"*55)
+deltas=[]
+for p in sorted(participants):
+    sub,nf1=best_per_part[p]; prev=prev_f1.get(p,np.nan)
+    delta=nf1-prev if not np.isnan(prev) else np.nan
+    if not np.isnan(delta): deltas.append(delta)
+    m="▲" if (not np.isnan(delta) and delta>0) else ("▼" if (not np.isnan(delta) and delta<0) else "=")
+    print(f"{p:>3}  {sub:<24} {nf1:>7.3f} {prev:>7.3f} {m}{abs(delta):.3f}" if not np.isnan(delta) else f"{p:>3}  {sub:<24} {nf1:>7.3f} {'—':>7}")
+print(f"\n  Mean F1 NEW : {np.mean([v for _,v in best_per_part.values()]):.3f}")
+print(f"  Mean F1 PREV: {np.mean(list(prev_f1.values())):.3f}")
+print(f"  Mean Δ      : {np.mean(deltas):+.3f}")
+print(f"  Improved    : {sum(d>0 for d in deltas)}/{len(deltas)} participants")
+ 
+# ── Summary table ─────────────────────────────────────────────────────
+print("\n"+"="*65)
+print("FULL ABLATION SUMMARY (sorted by F1)")
+print("="*65)
+res_df=pd.DataFrame(subset_res).T.sort_values("f1",ascending=False)
+print(res_df[["n_features","f1","auroc","balanced_acc","sensitivity","specificity","threshold"]].round(3).to_string())
+ 
+# ── Feature importance ────────────────────────────────────────────────
+best_name=res_df.index[0]
+bc=[c for c in SUBSETS[best_name] if c in dm.columns]
+Ximp=dm[bc].fillna(dm[bc].median()).values.astype(float)
+rfi=RandomForestClassifier(n_estimators=500,class_weight="balanced",max_depth=6,random_state=42)
+rfi.fit(Ximp,y_all)
+imp_s=pd.Series(rfi.feature_importances_,index=bc).sort_values(ascending=False)
+print(f"\nTop features in best subset ({best_name}):")
+print(imp_s.head(10).round(4).to_string())
+ 
+# ── Save ──────────────────────────────────────────────────────────────
+res_df.to_csv("outputs/ablation_results.csv")
+imp_s.to_csv("outputs/feature_importance.csv",header=["importance"])
+cmp_rows=[dict(participant=p,best_subset=best_per_part[p][0],new_f1=best_per_part[p][1],
+               prev_f1=prev_f1.get(p,np.nan),delta=round(best_per_part[p][1]-prev_f1.get(p,0),3))
+          for p in sorted(participants)]
+pd.DataFrame(cmp_rows).to_csv("outputs/per_participant_comparison.csv",index=False)
+print("\nSaved: ablation_results.csv | feature_importance.csv | per_participant_comparison.csv")
