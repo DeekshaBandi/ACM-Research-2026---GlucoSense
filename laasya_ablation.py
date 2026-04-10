@@ -22,8 +22,6 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     roc_auc_score, balanced_accuracy_score, f1_score,
     recall_score, confusion_matrix,
@@ -73,15 +71,13 @@ def run_loso(X, y, groups):
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
-        pipe = Pipeline([
-            ("imputer", SimpleImputer(strategy="mean")),
-            ("clf", RandomForestClassifier(
-                n_estimators=100, random_state=42, n_jobs=-1)),
-        ])
-        pipe.fit(X_train, y_train)
+        clf = RandomForestClassifier(
+            n_estimators=100, class_weight="balanced",
+            random_state=42, n_jobs=-1)
+        clf.fit(X_train, y_train)
 
-        y_pred = pipe.predict(X_test)
-        y_prob = pipe.predict_proba(X_test)
+        y_pred = clf.predict(X_test)
+        y_prob = clf.predict_proba(X_test)
 
         # AUROC needs both classes or at least probabilities
         if len(np.unique(y_test)) == 1:
@@ -119,14 +115,23 @@ def summarise(fold_metrics):
 
 def main():
     df = pd.read_csv(DATA_PATH)
-    y = df["label"].values
-    groups = df["subject_id"].values
 
     # Verify all expected features exist
     all_features = [c for g in SENSOR_GROUPS.values() for c in g]
     missing = [c for c in all_features if c not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in dataset: {missing}")
+
+    # Drop rows with any missing sensor values instead of imputing
+    n_before = len(df)
+    df = df.dropna(subset=all_features).reset_index(drop=True)
+    n_dropped = n_before - len(df)
+    if n_dropped > 0:
+        print(f"Dropped {n_dropped} rows with missing sensor values "
+              f"({n_before} -> {len(df)})\n")
+
+    y = df["label"].values
+    groups = df["subject_id"].values
 
     modalities = list(SENSOR_GROUPS.keys())
     results = []
