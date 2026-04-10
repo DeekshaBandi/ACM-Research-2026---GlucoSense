@@ -1,0 +1,66 @@
+{
+  "approach": "co-primary",
+  "models": [
+    "random_forest",
+    "xgboost"
+  ],
+  "primary_label": "label",
+  "sensitivity_label": "label_p75",
+  "minimum_viable_subset": "acc",
+  "minimum_viable_n_features": 3,
+  "best_rf_subset": "acc",
+  "best_xgb_subset": "acc+eda+temp",
+  "decision_rule": "Smallest subset where both models' AUROC fold mean >= 0.686 - 0.05 = 0.636",
+  "minimum_viable_metrics": {
+    "rf": {
+      "auroc_fold_mean": 0.725,
+      "auroc_fold_std": 0.255,
+      "bal_acc_fold_mean": 0.624,
+      "f1_fold_mean": 0.558,
+      "sens_fold_mean": 0.608,
+      "spec_fold_mean": 0.646
+    },
+    "xgb": {
+      "auroc_fold_mean": 0.662,
+      "auroc_fold_std": 0.206,
+      "bal_acc_fold_mean": 0.645,
+      "f1_fold_mean": 0.558,
+      "sens_fold_mean": 0.662,
+      "spec_fold_mean": 0.61
+    }
+  },
+  "best_rf_metrics": {
+    "auroc_fold_mean": 0.725,
+    "auroc_fold_std": 0.255,
+    "bal_acc_fold_mean": 0.624,
+    "f1_fold_mean": 0.558,
+    "sens_fold_mean": 0.608,
+    "spec_fold_mean": 0.646
+  },
+  "best_xgb_metrics": {
+    "auroc_fold_mean": 0.693,
+    "auroc_fold_std": 0.295,
+    "bal_acc_fold_mean": 0.63,
+    "f1_fold_mean": 0.574,
+    "sens_fold_mean": 0.708,
+    "spec_fold_mean": 0.551
+  },
+  "full_model_metrics": {
+    "rf": {
+      "auroc_fold_mean": 0.645,
+      "auroc_fold_std": 0.294,
+      "bal_acc_fold_mean": 0.582,
+      "f1_fold_mean": 0.516,
+      "sens_fold_mean": 0.6,
+      "spec_fold_mean": 0.556
+    },
+    "xgb": {
+      "auroc_fold_mean": 0.627,
+      "auroc_fold_std": 0.329,
+      "bal_acc_fold_mean": 0.611,
+      "f1_fold_mean": 0.548,
+      "sens_fold_mean": 0.575,
+      "spec_fold_mean": 0.644
+    }
+  }
+}

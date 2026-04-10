@@ -1,0 +1,4 @@
+# Raw participant data folders
+data/[0-9][0-9][0-9]/
+
+# Keep CSVs and other non-raw files in data/

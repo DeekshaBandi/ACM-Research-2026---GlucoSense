@@ -1,0 +1,17 @@
+{
+  "approach": "co-primary",
+  "models": [
+    "random_forest",
+    "xgboost"
+  ],
+  "rationale": "RF and XGBoost evaluated as co-primary models across 17 sensor subsets. Overall mean rank (5 metrics): RF 9.00, XGB 9.00. Neither model consistently dominates; both are retained to confirm findings are not model-dependent.",
+  "best_rf_subset": "acc",
+  "best_rf_auroc_fm": 0.725,
+  "best_xgb_subset": "acc+eda+temp",
+  "best_xgb_auroc_fm": 0.693,
+  "minimum_viable_subset": "acc",
+  "minimum_viable_n_features": 3,
+  "minimum_viable_rf_auroc": 0.725,
+  "minimum_viable_xgb_auroc": 0.662,
+  "decision_rule": "Smallest subset where both models' AUROC fold mean >= 0.686 - 0.05 = 0.636"
+}
