@@ -1,28 +1,56 @@
 """
-Feature groups and sensor-ablation subsets.
+Feature groups, sensor-ablation subsets, and pre-registered label hierarchy.
 
 Import this module everywhere labels or feature lists are needed so that
 all scripts stay in sync with a single source of truth.
 
-Label strategy
---------------
-  PRIMARY    : label_median      (CV >= cohort median, ~50/50 split)
-  SENSITIVITY: label_p75         (CV >= 75th percentile, ~25/75 split)
-  SENSITIVITY: label_mage_median (MAGE >= cohort median, secondary endpoint)
-  REFERENCE  : label_clinical    (CV >= 36%, effectively unusable for this cohort)
+Pre-registered label hierarchy (harmonized-primary-analysis branch)
+-------------------------------------------------------------------
+  PRIMARY     : label_median      (CV >= cohort median, ~50/50 split)
+      THE single endpoint against which the main-paper sensor-ablation
+      result is reported. Chosen because it is balanced, methodologically
+      defensible for a normoglycemic feasibility cohort, and the most
+      stable across classifiers in our diagnostics. This designation is
+      pre-registered at the code level: PRIMARY_ENDPOINT below is the
+      only label that may be used for main-text claims about minimum
+      viable wearable sensor configurations.
+
+  SENSITIVITY : label_p75         (CV >= 75th percentile, ~25/75 split)
+      Pre-specified robustness check. Reported once in a sensitivity
+      table; MUST NOT be used to re-rank or re-declare a winner.
+
+  SENSITIVITY : label_mage_median (MAGE >= cohort median)
+      Pre-specified robustness check on an alternative variability
+      construct (excursion amplitude). Reported once in a sensitivity
+      table; MUST NOT be used to re-rank or re-declare a winner.
+
+  REFERENCE   : label_clinical    (CV >= 36%, AACE clinical cutoff)
+      Included for traceability only. The cohort is normoglycemic, so
+      this threshold is effectively unusable for classification here
+      and is NOT a candidate primary or sensitivity endpoint.
+
+Any downstream script that reports a subset ranking, a "candidate
+minimum configuration," or any Dummy-floor comparison in the main
+paper MUST use PRIMARY_ENDPOINT. Sensitivity scripts must explicitly
+consume SENSITIVITY_LABEL_COL or MAGE_LABEL_COL and label their outputs
+as sensitivity analyses.
 
 Usage
 -----
     from feature_config import MODALITIES, ABLATION_SUBSETS, ALL_FEATURES
-    from feature_config import LABEL_COL, SENSITIVITY_LABEL_COL, MAGE_LABEL_COL
+    from feature_config import PRIMARY_ENDPOINT, LABEL_COL
+    from feature_config import SENSITIVITY_LABEL_COL, MAGE_LABEL_COL
 """
 
 from itertools import combinations
 
 # ── Label columns ─────────────────────────────────────────────────────────────
-LABEL_COL             = "label"             # == label_median, primary
-SENSITIVITY_LABEL_COL = "label_p75"         # CV p75 sensitivity analysis
-MAGE_LABEL_COL        = "label_mage_median" # MAGE secondary endpoint
+# Pre-registered primary endpoint. `LABEL_COL` is kept as an alias for
+# backward compatibility with scripts ported from the deeksha branch.
+PRIMARY_ENDPOINT      = "label"             # == label_median, pre-registered primary
+LABEL_COL             = PRIMARY_ENDPOINT    # legacy alias — do not repurpose
+SENSITIVITY_LABEL_COL = "label_p75"         # pre-specified sensitivity (CV p75 split)
+MAGE_LABEL_COL        = "label_mage_median" # pre-specified sensitivity (MAGE median split)
 
 # ── Individual modality feature lists ─────────────────────────────────────────
 MODALITIES: dict[str, list[str]] = {

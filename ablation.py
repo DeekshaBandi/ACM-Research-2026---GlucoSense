@@ -1,20 +1,31 @@
 """
-Sensor Ablation Study (Co-Primary: RF + XGBoost) + Dummy floor
----------------------------------------------------------------
-Evaluates Random Forest and XGBoost as co-primary models across all 17
-feature subsets defined in feature_config.ABLATION_SUBSETS.
+Sensor Ablation Study — MAIN-PAPER PIPELINE
+-------------------------------------------
+This is the main-paper sensor-ablation pipeline on the harmonized-primary-
+analysis branch. It evaluates Random Forest and XGBoost as co-primary models
+across all 17 feature subsets defined in feature_config.ABLATION_SUBSETS,
+against the PRE-REGISTERED PRIMARY ENDPOINT (feature_config.PRIMARY_ENDPOINT
+== label_median, CV ≥ cohort median).
 
-A stratified DummyClassifier is also run on every subset to establish an
-explicit chance floor (sanity check — reviewers should be able to see at
-a glance how far each real model is above random guessing).
+Only this pipeline, run against PRIMARY_ENDPOINT, may be used to make
+main-text claims about minimum viable wearable sensor configurations.
+MAGE and CV-p75 sensitivity runs live in sensitivity_and_report.py and
+MUST NOT be used to re-rank subsets or re-declare a winner — they exist
+solely to probe robustness of the primary result.
 
-Logistic Regression is deliberately kept BASELINE-ONLY (see train_baseline.py)
-and is NOT part of the ablation loop: RF and XGB are the co-primary models,
-LR provides a linear-interpretable reference on the full feature set only.
+A stratified DummyClassifier is run on every subset to establish an
+explicit chance floor, so reviewers can see at a glance how far each
+real model sits above random guessing.
 
-Goal: identify wearable sensor configurations that perform consistently well
-across both non-trivial models. "Best" subsets are reported with per-fold
-uncertainty, not ranked by point estimates alone.
+Logistic Regression is kept BASELINE-ONLY (see train_baseline.py) and is
+NOT part of the ablation loop: RF and XGB are the co-primary models; LR
+provides a linear-interpretable reference on the full feature set only.
+
+Goal: identify wearable sensor configurations that perform consistently
+well under the pre-registered primary endpoint. Subsets are reported with
+per-fold uncertainty (fold-SE 95% CI) and a top-tier CI-overlap cluster,
+not ranked by point estimates alone. No single "winner" is declared when
+the top cluster contains multiple subsets.
 
 Hyperparameter policy
 ---------------------
@@ -57,7 +68,7 @@ from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
-from feature_config import ABLATION_SUBSETS, LABEL_COL
+from feature_config import ABLATION_SUBSETS, PRIMARY_ENDPOINT
 from modeling_utils  import load_data, prepare_matrix, run_loso_cv, compute_fold_metrics
 
 warnings.filterwarnings("ignore")
@@ -106,7 +117,7 @@ print("-" * 110)
 run_i = 0
 for subset_name, feat_cols in ABLATION_SUBSETS.items():
     df_data = load_data()
-    X, y, parts = prepare_matrix(df_data, feat_cols, LABEL_COL)
+    X, y, parts = prepare_matrix(df_data, feat_cols, PRIMARY_ENDPOINT)
 
     subset_preds = {}
     for model_name, clf in MODELS.items():

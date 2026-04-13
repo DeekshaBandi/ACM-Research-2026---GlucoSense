@@ -1,9 +1,24 @@
 """
-Steps 10-12: Sensitivity analysis, final outputs, and interpretation
----------------------------------------------------------------------
-Step 10: Re-run best subsets with label_p75 (both RF and XGBoost)
-Step 11: Consolidate and save all final outputs
-Step 12: Print structured interpretation
+Steps 10-12: Pre-specified sensitivity analyses, final outputs, and
+main-paper interpretation — harmonized-primary-analysis branch
+----------------------------------------------------------------
+This script implements the MAIN-PAPER reporting pipeline on top of the
+pre-registered primary ablation (ablation.py). It runs two pre-specified
+sensitivity analyses against alternative variability labels and writes
+the final main-paper output tables.
+
+  Primary endpoint (from ablation.py) : PRIMARY_ENDPOINT == label_median
+  Sensitivity #1 (pre-specified)      : SENSITIVITY_LABEL_COL (CV p75)
+  Sensitivity #2 (pre-specified)      : MAGE_LABEL_COL (MAGE cohort-median)
+
+Both sensitivity runs are reported as single robustness tables. They MUST
+NOT be used to re-rank subsets or re-declare a "winner" — their role is
+exclusively to probe whether the primary-endpoint conclusions are stable
+under alternative constructions of glycemic variability.
+
+Step 10: Re-run top-5 cross-model subsets under the two sensitivity labels
+Step 11: Consolidate and save all final main-paper outputs
+Step 12: Print structured main-paper interpretation
 """
 
 import os, json, warnings
@@ -13,7 +28,8 @@ from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
 from feature_config  import (
-    ABLATION_SUBSETS, LABEL_COL, SENSITIVITY_LABEL_COL, MAGE_LABEL_COL,
+    ABLATION_SUBSETS, PRIMARY_ENDPOINT,
+    SENSITIVITY_LABEL_COL, MAGE_LABEL_COL,
 )
 from modeling_utils  import load_data, prepare_matrix, run_loso_cv, compute_fold_metrics
 
@@ -55,9 +71,12 @@ SENS_SUBSETS = _top5
 df_full = load_data()
 
 print("=" * 70)
-print("STEP 10 -- Sensitivity analyses")
-print("  (a) label_p75         : CV >= 75th percentile  (25/75 split)")
-print("  (b) label_mage_median : MAGE >= cohort median  (secondary endpoint)")
+print("STEP 10 -- PRE-SPECIFIED sensitivity analyses")
+print(f"  Primary endpoint (ablation.py) : {PRIMARY_ENDPOINT}  (CV >= cohort median)")
+print("  Sensitivity #1 (pre-specified) : label_p75          (CV >= 75th percentile)")
+print("  Sensitivity #2 (pre-specified) : label_mage_median  (MAGE >= cohort median)")
+print("  Role                           : robustness probes of the primary result.")
+print("                                   NOT used to re-rank or re-declare a winner.")
 print("=" * 70)
 
 # Quick label stats
@@ -89,14 +108,14 @@ for subset in SENS_SUBSETS:
     for model_name, (make_clf, scale) in SENS_MODELS.items():
         short_model = "RF" if model_name == "random_forest" else "XGB"
 
-        # Primary label (median)
-        X, y, parts = prepare_matrix(df_full, feats, LABEL_COL)
+        # Primary endpoint (pre-registered)
+        X, y, parts = prepare_matrix(df_full, feats, PRIMARY_ENDPOINT)
         preds_med   = run_loso_cv(make_clf(), X, y, parts, scale=scale)
         m_med       = compute_fold_metrics(preds_med)
         primary_rows.append({"subset": subset, "model": model_name,
-                             "label": "median", **m_med})
+                             "label": "primary", **m_med})
 
-        label_metrics = {"median": m_med}
+        label_metrics = {"primary": m_med}
 
         for short, col in SENS_LABELS:
             X_s, y_s, p_s = prepare_matrix(df_full, feats, col)
@@ -114,7 +133,7 @@ for subset in SENS_SUBSETS:
                 mage_rows.append(row)
             label_metrics[short] = m_s
 
-        for lbl in ("median", "p75", "mage"):
+        for lbl in ("primary", "p75", "mage"):
             m = label_metrics[lbl]
             ci_str = f"[{m['auroc_fold_ci_lo']:.2f}, {m['auroc_fold_ci_hi']:.2f}]"
             print(f"  {subset:<22s}  {short_model:<12s}  {lbl:<8s}  "
@@ -188,8 +207,9 @@ mkeys = ["auroc_fold_mean", "auroc_fold_std", "bal_acc_fold_mean",
 final_config = {
     "approach":                model_sel["approach"],
     "models":                  model_sel["models"],
-    "primary_label":           LABEL_COL,
-    "sensitivity_label":       SENSITIVITY_LABEL_COL,
+    "primary_endpoint":        PRIMARY_ENDPOINT,
+    "sensitivity_label_p75":   SENSITIVITY_LABEL_COL,
+    "sensitivity_label_mage":  MAGE_LABEL_COL,
     "minimum_viable_subset":   min_viable_subset,
     "minimum_viable_n_features": model_sel["minimum_viable_n_features"],
     "best_rf_subset":          best_rf_subset,
@@ -311,11 +331,15 @@ print(f"""
    Cross-model best (by mean rank): {top_cross['subset']}
      Mean rank = {top_cross['mean_rank']:.2f}
 
-3. MINIMUM VIABLE SENSOR CONFIGURATION
+3. CANDIDATE MINIMAL SENSOR CONFIGURATION
    -----------------------------------------------------------------
-   Decision rule: {fc['decision_rule']}
+   Decision rule (nominal point estimate, NOT statistical superiority):
+     {fc['decision_rule']}
 
-   >> Recommended: {mv_sub} ({mv_nfeat} features)
+   Reported as a candidate — not a sole winner. See ablation.py for the
+   full top-tier CI-overlap cluster ('T' flag).
+
+   >> Nominal candidate: {mv_sub} ({mv_nfeat} features)
      RF  : AUROC fm = {mv_rf_m['auroc_fold_mean']:.3f} +- {mv_rf_m['auroc_fold_std']:.3f}  |  Bal. acc = {mv_rf_m['bal_acc_fold_mean']:.3f}  |  F1 = {mv_rf_m['f1_fold_mean']:.3f}
      XGB : AUROC fm = {mv_xgb_m['auroc_fold_mean']:.3f} +- {mv_xgb_m['auroc_fold_std']:.3f}  |  Bal. acc = {mv_xgb_m['bal_acc_fold_mean']:.3f}  |  F1 = {mv_xgb_m['f1_fold_mean']:.3f}
 
@@ -328,9 +352,11 @@ print(f"""
      RF  AUROC fm = {mv_rf_m['auroc_fold_mean']:.3f}  (delta = {mv_rf_m['auroc_fold_mean'] - full_rf_m['auroc_fold_mean']:+.3f})
      XGB AUROC fm = {mv_xgb_m['auroc_fold_mean']:.3f}  (delta = {mv_xgb_m['auroc_fold_mean'] - full_xgb_m['auroc_fold_mean']:+.3f})
 
-   Reduced sensor sets match or exceed the full-feature model in both
-   classifiers, indicating that additional modalities add noise rather
-   than discriminative power in this cohort.
+   Reduced sensor sets numerically match or exceed the full-feature
+   model in both classifiers. Given the heavy CI overlap across subsets
+   (see ablation.py), we frame this as "additional modalities do not
+   consistently improve discrimination in this cohort" rather than as
+   evidence that they actively add noise.
 
 5. STABILITY AND NOISE
    -----------------------------------------------------------------
@@ -343,8 +369,12 @@ print(f"""
 
 if has_sens:
     print(f"""
-6. SENSITIVITY ANALYSES
+6. PRE-SPECIFIED SENSITIVITY ANALYSES (robustness probes only)
    -----------------------------------------------------------------
+   These runs test whether the primary-endpoint finding is stable under
+   alternative constructions of glycemic variability. They are NOT used
+   to re-rank subsets or re-declare a candidate minimum configuration.
+
    (a) label_p75  (CV >= 75th percentile, 25/75 split)
        {mv_sub} :  RF AUROC fm = {sens_p75['mv_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_p75['mv_xg']['auroc_fold_mean']:.3f}
        all     :  RF AUROC fm = {sens_p75['all_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_p75['all_xg']['auroc_fold_mean']:.3f}
@@ -360,31 +390,45 @@ if has_sens:
 cross_auroc_avg = (mv_rf_m["auroc_fold_mean"] + mv_xgb_m["auroc_fold_mean"]) / 2
 
 print(f"""
-7. BOTTOM LINE  (BRANCH-SPECIFIC — deeksha pipeline)
+7. MAIN-PAPER BOTTOM LINE  (harmonized primary analysis)
    -----------------------------------------------------------------
-   In this 16-participant feasibility study, daily glycemic variability
-   (defined by a cohort-relative CV median split) can be classified from
-   a reduced wearable sensor configuration ({mv_sub}, {mv_nfeat} features)
-   at AUROC ~{cross_auroc_avg:.2f} cross-model average, numerically comparable
-   to the full Empatica E4 sensor suite (17 features).
+   Under the PRE-REGISTERED primary endpoint ({PRIMARY_ENDPOINT}, daily CV
+   vs. cohort median), daily glycemic variability in this 16-participant
+   normoglycemic feasibility cohort can be classified from a reduced
+   wearable sensor configuration ({mv_sub}, {mv_nfeat} features) at an
+   AUROC of ~{cross_auroc_avg:.2f} cross-model average, numerically comparable
+   to the full Empatica E4 sensor suite (17 features). This is reported
+   as a CANDIDATE minimal configuration — the top-tier CI-overlap cluster
+   identified in ablation.py contains multiple subsets that are not
+   statistically separable from the nominal leader, and the main text
+   reports that cluster rather than a single winner.
 
-   CAVEATS (must be reported alongside the point estimates):
-     * Per-fold AUROC std is ~0.25-0.30; top-tier subsets overlap
-       substantially in CI and are NOT statistically separable.
-     * Two LOSO folds are structurally degenerate (single-class test set),
-       so effective fold count is lower than 16 — see auroc_folds_eval.
-     * Labels are cohort-relative, not clinical. Findings describe
-       relatively higher-vs-lower variability *within this cohort*.
-     * These conclusions apply to this branch's pipeline only. Do NOT
-       generalize to other branches whose harmonized analyses may use
-       different features, labels, or inclusion rules.
+   Pre-specified sensitivity runs (label_p75, label_mage_median) probe
+   robustness of the primary result. They are reported as single tables
+   and are NOT used to re-rank subsets. Label-dependence observed across
+   these sensitivity runs is discussed in the robustness appendix rather
+   than treated as a contradictory main finding.
 
-   The results support the *feasibility* of low-burden glycemic
-   variability monitoring from a reduced sensor subset, and motivate
-   replication in a larger, more diverse sample with a clinically
-   defined variability endpoint.
+   LIMITATIONS (reported alongside the point estimates):
+     * Per-fold AUROC std is ~0.25-0.30; fold-SE 95% CIs overlap heavily
+       across subsets, so "best sensor" language is avoided.
+     * Two LOSO folds are structurally degenerate (single-class held-out
+       participant), reducing effective fold count below 16; see
+       auroc_folds_eval in every metrics table.
+     * Labels are cohort-relative, not clinical. The AACE clinical CV
+       cutoff (>= 36%) is included only as a reference column because
+       this normoglycemic cohort does not populate it meaningfully.
+     * N = 16 participants; findings describe feasibility in this cohort
+       and require replication in a larger sample with a clinically
+       defined variability endpoint before any minimum-sensor claim
+       can be generalized.
+
+   The results support the FEASIBILITY of low-burden glycemic variability
+   monitoring from a reduced wearable sensor subset, and motivate
+   pre-registered replication on a clinically labeled cohort.
 """)
 
 print("  Saved -> results/final_config.json")
 print("  Saved -> results/final_ablation_comparison.csv")
 print("  Saved -> results/sensitivity_metrics_p75.csv")
+print("  Saved -> results/sensitivity_metrics_mage.csv")
