@@ -1,10 +1,17 @@
 """
 Baseline model training — all features, LOSO-CV
 -------------------------------------------------
+Role of this script
+  Provides a FULL-FEATURE-SET baseline comparison across three classifiers.
+  Logistic Regression is deliberately scoped to this baseline only and is
+  NOT included in the sensor-ablation loop (see ablation.py). RF and XGB
+  are the co-primary ablation models; LR is retained here as a linear-
+  interpretable reference on the complete feature set.
+
 Models:
-  - Logistic Regression (L2, balanced class weight)
-  - Random Forest       (100 trees, balanced class weight)
-  - XGBoost             (100 trees, scale_pos_weight for balance)
+  - Logistic Regression (L2, balanced class weight)   [baseline-only]
+  - Random Forest       (100 trees, balanced class weight)  [co-primary]
+  - XGBoost             (100 trees, scale_pos_weight for balance)  [co-primary]
 
 Metrics reported per model:
   AUROC, balanced accuracy, F1 (macro), sensitivity, specificity

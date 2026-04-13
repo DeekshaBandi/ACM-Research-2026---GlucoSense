@@ -233,10 +233,18 @@ def compute_fold_metrics(preds: pd.DataFrame, n_boot: int = 1000) -> dict:
     spec_p = tn / (tn + fp) if (tn + fp) > 0 else np.nan
 
     # ── Bootstrap 95% CI for pooled AUROC ─────────────────────────────
+    # Participant-stratified (cluster) bootstrap: resample PARTICIPANTS with
+    # replacement and concatenate all their rows.  Row-level resampling would
+    # break the LOSO unit and produce optimistically narrow CIs.
     rng  = np.random.default_rng(42)
+    part_all = preds["participant"].values
+    uniq_parts = np.unique(part_all)
+    idx_by_part = {p: np.where(part_all == p)[0] for p in uniq_parts}
+
     boot = []
     for _ in range(n_boot):
-        idx = rng.integers(0, len(yt_all), len(yt_all))
+        sampled = rng.choice(uniq_parts, size=len(uniq_parts), replace=True)
+        idx = np.concatenate([idx_by_part[p] for p in sampled])
         if len(np.unique(yt_all[idx])) == 2:
             boot.append(roc_auc_score(yt_all[idx], ypr_all[idx]))
     ci_lo, ci_hi = (np.percentile(boot, [2.5, 97.5]) if boot
@@ -244,13 +252,25 @@ def compute_fold_metrics(preds: pd.DataFrame, n_boot: int = 1000) -> dict:
 
     r = lambda x: round(x, 3) if not np.isnan(x) else np.nan
 
+    # Standard error and 95% CI of the per-fold AUROC mean (t-less normal approx)
+    n_fe = len(fold_auroc)
+    if n_fe >= 2:
+        auroc_fold_se    = auroc_fs / np.sqrt(n_fe)
+        auroc_fold_ci_lo = auroc_fm - 1.96 * auroc_fold_se
+        auroc_fold_ci_hi = auroc_fm + 1.96 * auroc_fold_se
+    else:
+        auroc_fold_se = auroc_fold_ci_lo = auroc_fold_ci_hi = np.nan
+
     return {
         "n":                 len(yt_all),
         "n_high":            int(yt_all.sum()),
         "n_low":             int(len(yt_all) - yt_all.sum()),
         "auroc_fold_mean":   r(auroc_fm),
         "auroc_fold_std":    r(auroc_fs),
-        "auroc_folds_eval":  len(fold_auroc),
+        "auroc_fold_se":     r(auroc_fold_se),
+        "auroc_fold_ci_lo":  r(auroc_fold_ci_lo),
+        "auroc_fold_ci_hi":  r(auroc_fold_ci_hi),
+        "auroc_folds_eval":  n_fe,
         "auroc_pooled":      r(auroc_p),
         "auroc_ci_lo":       r(ci_lo),
         "auroc_ci_hi":       r(ci_hi),

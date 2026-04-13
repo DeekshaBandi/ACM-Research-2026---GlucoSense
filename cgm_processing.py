@@ -160,10 +160,16 @@ def process_all() -> tuple[pd.DataFrame, dict]:
     cv_median = result["cv"].median()
     cv_p75 = result["cv"].quantile(0.75)
     cv_clinical = 36.0  # kept as reference column
+    mage_median = result["mage"].median()  # cohort-relative MAGE split
 
     result["label_median"] = (result["cv"] >= cv_median).astype(int)
     result["label_p75"] = (result["cv"] >= cv_p75).astype(int)
     result["label_clinical"] = (result["cv"] >= cv_clinical).astype(int)
+    # Secondary endpoint: MAGE cohort-median split.  Days with NaN MAGE
+    # (insufficient turning points) are left as NaN, not 0 — dropped in
+    # prepare_matrix for any run using this label.
+    result["label_mage_median"] = (result["mage"] >= mage_median).astype("Int64")
+    result.loc[result["mage"].isna(), "label_mage_median"] = pd.NA
 
     # Primary label used downstream
     result["label"] = result["label_median"]
@@ -172,6 +178,7 @@ def process_all() -> tuple[pd.DataFrame, dict]:
     # Store thresholds as metadata columns for traceability
     result["cv_threshold_median"] = round(cv_median, 2)
     result["cv_threshold_p75"] = round(cv_p75, 2)
+    result["mage_threshold_median"] = round(mage_median, 2)
 
     # Reorder columns
     cols = [
@@ -179,8 +186,8 @@ def process_all() -> tuple[pd.DataFrame, dict]:
         "mean_glucose", "sd_glucose", "cv",
         "tir_70_180", "tar_180", "tbr_70", "mage",
         "label", "label_str",
-        "label_median", "label_p75", "label_clinical",
-        "cv_threshold_median", "cv_threshold_p75",
+        "label_median", "label_p75", "label_clinical", "label_mage_median",
+        "cv_threshold_median", "cv_threshold_p75", "mage_threshold_median",
     ]
     result = result[cols].sort_values(["participant", "date"]).reset_index(drop=True)
     return result, {"cv_median": cv_median, "cv_p75": cv_p75}

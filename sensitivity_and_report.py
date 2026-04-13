@@ -12,7 +12,9 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
-from feature_config  import ABLATION_SUBSETS, LABEL_COL, SENSITIVITY_LABEL_COL
+from feature_config  import (
+    ABLATION_SUBSETS, LABEL_COL, SENSITIVITY_LABEL_COL, MAGE_LABEL_COL,
+)
 from modeling_utils  import load_data, prepare_matrix, run_loso_cv, compute_fold_metrics
 
 warnings.filterwarnings("ignore")
@@ -53,22 +55,33 @@ SENS_SUBSETS = _top5
 df_full = load_data()
 
 print("=" * 70)
-print("STEP 10 -- Sensitivity analysis  (label_p75: CV >= 75th percentile)")
+print("STEP 10 -- Sensitivity analyses")
+print("  (a) label_p75         : CV >= 75th percentile  (25/75 split)")
+print("  (b) label_mage_median : MAGE >= cohort median  (secondary endpoint)")
 print("=" * 70)
 
 # Quick label stats
 y_p75 = df_full[SENSITIVITY_LABEL_COL].dropna()
-print(f"\nlabel_p75 distribution: "
+y_mage = df_full[MAGE_LABEL_COL].dropna()
+print(f"\nlabel_p75  distribution: "
       f"{int(y_p75.sum())} high / {int(len(y_p75) - y_p75.sum())} low  "
-      f"({y_p75.mean()*100:.1f}% / {(1-y_p75.mean())*100:.1f}%)\n")
+      f"({y_p75.mean()*100:.1f}% / {(1-y_p75.mean())*100:.1f}%)")
+print(f"label_mage distribution: "
+      f"{int(y_mage.sum())} high / {int(len(y_mage) - y_mage.sum())} low  "
+      f"({y_mage.mean()*100:.1f}% / {(1-y_mage.mean())*100:.1f}%)  "
+      f"[NaN MAGE days excluded]\n")
 
-sens_rows    = []   # p75 results
+sens_rows    = []   # p75 results (kept name for downstream compatibility)
+mage_rows    = []   # MAGE sensitivity
 primary_rows = []   # median results (for comparison)
 
-print(f"  {'Subset':<22s}  {'Model':<12s}  {'Label':<8s}  {'n':>4s}  "
-      f"{'AUROC_fm':>8s}  {'+-std':>5s}  {'BalAcc_fm':>9s}  {'F1_fm':>6s}  "
-      f"{'Sens_fm':>7s}  {'Spec_fm':>7s}")
-print("  " + "-" * 100)
+# Sensitivity labels iterated over: (short name, column)
+SENS_LABELS = [("p75", SENSITIVITY_LABEL_COL), ("mage", MAGE_LABEL_COL)]
+
+print(f"  {'Subset':<22s}  {'Model':<12s}  {'Label':<8s}  {'n':>4s}  {'fe':>3s}  "
+      f"{'AUROC_fm':>8s}  {'+-std':>5s}  {'95% CI (fold SE)':>18s}  "
+      f"{'BalAcc':>6s}  {'F1':>6s}")
+print("  " + "-" * 110)
 
 for subset in SENS_SUBSETS:
     feats = ABLATION_SUBSETS[subset]
@@ -83,27 +96,38 @@ for subset in SENS_SUBSETS:
         primary_rows.append({"subset": subset, "model": model_name,
                              "label": "median", **m_med})
 
-        # Sensitivity label (p75)
-        X75, y75, p75 = prepare_matrix(df_full, feats, SENSITIVITY_LABEL_COL)
-        preds_p75     = run_loso_cv(make_clf(), X75, y75, p75, scale=scale)
-        preds_p75.to_csv(
-            f"results/sensitivity_predictions_{model_name}_{subset}.csv",
-            index=False,
-        )
-        m_p75 = compute_fold_metrics(preds_p75)
-        sens_rows.append({"subset": subset, "model": model_name,
-                          "label": "p75", **m_p75})
+        label_metrics = {"median": m_med}
 
-        for lbl, m in [("median", m_med), ("p75", m_p75)]:
+        for short, col in SENS_LABELS:
+            X_s, y_s, p_s = prepare_matrix(df_full, feats, col)
+            preds_s = run_loso_cv(make_clf(), X_s, y_s, p_s, scale=scale)
+            preds_s.to_csv(
+                f"results/sensitivity_predictions_{short}_{model_name}_{subset}.csv",
+                index=False,
+            )
+            m_s = compute_fold_metrics(preds_s)
+            row = {"subset": subset, "model": model_name,
+                   "label": short, **m_s}
+            if short == "p75":
+                sens_rows.append(row)
+            else:
+                mage_rows.append(row)
+            label_metrics[short] = m_s
+
+        for lbl in ("median", "p75", "mage"):
+            m = label_metrics[lbl]
+            ci_str = f"[{m['auroc_fold_ci_lo']:.2f}, {m['auroc_fold_ci_hi']:.2f}]"
             print(f"  {subset:<22s}  {short_model:<12s}  {lbl:<8s}  "
-                  f"{m['n']:>4d}  "
+                  f"{m['n']:>4d}  {m['auroc_folds_eval']:>3d}  "
                   f"{m['auroc_fold_mean']:>8.3f}  {m['auroc_fold_std']:>5.3f}  "
-                  f"{m['bal_acc_fold_mean']:>9.3f}  {m['f1_fold_mean']:>6.3f}  "
-                  f"{m['sens_fold_mean']:>7.3f}  {m['spec_fold_mean']:>7.3f}")
+                  f"{ci_str:>18s}  "
+                  f"{m['bal_acc_fold_mean']:>6.3f}  {m['f1_fold_mean']:>6.3f}")
     print()
 
 sens_df = pd.DataFrame(sens_rows)
 sens_df.to_csv("results/sensitivity_metrics_p75.csv", index=False)
+mage_df = pd.DataFrame(mage_rows)
+mage_df.to_csv("results/sensitivity_metrics_mage.csv", index=False)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -194,13 +218,15 @@ with open("results/final_config.json", "w") as f:
     json.dump(final_config, f, indent=2)
 
 saved_files = [
-    ("results/ablation_metrics.csv",          "All ablation metrics (RF + XGB, 34 runs)"),
+    ("results/ablation_metrics.csv",          "All ablation metrics (Dummy + RF + XGB, 51 runs)"),
+    ("results/ablation_metrics_dummy.csv",    "Dummy (stratified) floor metrics (17 subsets)"),
     ("results/ablation_metrics_rf.csv",       "RF ablation metrics (17 subsets)"),
     ("results/ablation_metrics_xgb.csv",      "XGBoost ablation metrics (17 subsets)"),
     ("results/cross_model_ranking.csv",       "Cross-model subset ranking"),
     ("results/final_ablation_comparison.csv", "RF vs XGB side-by-side comparison"),
     ("results/baseline_metrics.csv",          "Baseline comparison (LR / RF / XGB)"),
     ("results/sensitivity_metrics_p75.csv",   "Sensitivity analysis (both models, label_p75)"),
+    ("results/sensitivity_metrics_mage.csv",  "Sensitivity analysis (both models, label_mage_median)"),
     ("results/ensemble_metrics.csv",          "Soft-voting ensemble (secondary)"),
     ("results/model_selection.json",          "Co-primary model rationale + min viable config"),
     ("results/final_config.json",             "Final configuration summary"),
@@ -232,24 +258,27 @@ full_xgb_m = fc["full_model_metrics"]["xgb"]
 mv_sub     = fc["minimum_viable_subset"]
 mv_nfeat   = fc["minimum_viable_n_features"]
 
-# Sensitivity comparison: does min-viable pattern hold under p75?
+# Sensitivity comparison: does min-viable pattern hold under p75 / MAGE?
 def _get_row(rows, subset, model):
     return next((r for r in rows
                  if r["subset"] == subset and r["model"] == model), None)
 
-mv_rf_p75  = _get_row(sens_rows, mv_sub, "random_forest")
-all_rf_p75 = _get_row(sens_rows, "all", "random_forest")
-mv_xgb_p75 = _get_row(sens_rows, mv_sub, "xgboost")
-all_xgb_p75 = _get_row(sens_rows, "all", "xgboost")
+def _pattern(rows, mv_sub):
+    mv_rf  = _get_row(rows, mv_sub, "random_forest")
+    all_rf = _get_row(rows, "all",  "random_forest")
+    mv_xg  = _get_row(rows, mv_sub, "xgboost")
+    all_xg = _get_row(rows, "all",  "xgboost")
+    if not all([mv_rf, all_rf, mv_xg, all_xg]):
+        return None
+    return {
+        "mv_rf": mv_rf, "all_rf": all_rf, "mv_xg": mv_xg, "all_xg": all_xg,
+        "both":  (mv_rf["auroc_fold_mean"] > all_rf["auroc_fold_mean"] and
+                  mv_xg["auroc_fold_mean"] > all_xg["auroc_fold_mean"]),
+    }
 
-has_sens = all(x is not None for x in
-               [mv_rf_p75, all_rf_p75, mv_xgb_p75, all_xgb_p75])
-if has_sens:
-    pattern_rf  = mv_rf_p75["auroc_fold_mean"] > all_rf_p75["auroc_fold_mean"]
-    pattern_xgb = mv_xgb_p75["auroc_fold_mean"] > all_xgb_p75["auroc_fold_mean"]
-    pattern_both = pattern_rf and pattern_xgb
-else:
-    pattern_both = False
+sens_p75  = _pattern(sens_rows, mv_sub)
+sens_mage = _pattern(mage_rows, mv_sub)
+has_sens  = sens_p75 is not None
 
 top_cross = cross_ranking.sort_values("mean_rank").iloc[0]
 
@@ -314,31 +343,46 @@ print(f"""
 
 if has_sens:
     print(f"""
-6. SENSITIVITY ANALYSIS  (label_p75: CV >= 75th percentile)
+6. SENSITIVITY ANALYSES
    -----------------------------------------------------------------
-   {mv_sub} (p75):  RF AUROC fm = {mv_rf_p75['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {mv_xgb_p75['auroc_fold_mean']:.3f}
-   all    (p75):  RF AUROC fm = {all_rf_p75['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {all_xgb_p75['auroc_fold_mean']:.3f}
-   {mv_sub} {'outperforms' if pattern_both else 'does not consistently outperform'} the full model under p75 labeling across both models.
-   {'The main finding is robust to the labeling threshold.' if pattern_both
-    else 'The advantage weakens under p75; interpret with caution.'}""")
+   (a) label_p75  (CV >= 75th percentile, 25/75 split)
+       {mv_sub} :  RF AUROC fm = {sens_p75['mv_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_p75['mv_xg']['auroc_fold_mean']:.3f}
+       all     :  RF AUROC fm = {sens_p75['all_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_p75['all_xg']['auroc_fold_mean']:.3f}
+       {'Nominal advantage of the reduced subset persists under p75.' if sens_p75['both']
+        else 'Advantage does NOT consistently persist under p75 — interpret with caution.'}""")
+    if sens_mage is not None:
+        print(f"""   (b) label_mage_median  (MAGE secondary endpoint, cohort-median split)
+       {mv_sub} :  RF AUROC fm = {sens_mage['mv_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_mage['mv_xg']['auroc_fold_mean']:.3f}
+       all     :  RF AUROC fm = {sens_mage['all_rf']['auroc_fold_mean']:.3f}  |  XGB AUROC fm = {sens_mage['all_xg']['auroc_fold_mean']:.3f}
+       {'Reduced-subset advantage also holds under MAGE labeling.' if sens_mage['both']
+        else 'Reduced-subset advantage does NOT hold under MAGE labeling — the CV-based finding may be label-dependent.'}""")
 
 cross_auroc_avg = (mv_rf_m["auroc_fold_mean"] + mv_xgb_m["auroc_fold_mean"]) / 2
 
 print(f"""
-7. BOTTOM LINE
+7. BOTTOM LINE  (BRANCH-SPECIFIC — deeksha pipeline)
    -----------------------------------------------------------------
    In this 16-participant feasibility study, daily glycemic variability
-   (defined by cohort-relative CV) can be classified from a reduced
-   wearable sensor configuration ({mv_sub}, {mv_nfeat} features) at
-   AUROC ~{cross_auroc_avg:.2f} (cross-model average), matching or exceeding
-   the full Empatica E4 sensor suite (17 features).
+   (defined by a cohort-relative CV median split) can be classified from
+   a reduced wearable sensor configuration ({mv_sub}, {mv_nfeat} features)
+   at AUROC ~{cross_auroc_avg:.2f} cross-model average, numerically comparable
+   to the full Empatica E4 sensor suite (17 features).
 
-   This finding is consistent across both Random Forest and XGBoost,
-   confirming it is not an artefact of a single model's inductive bias.
+   CAVEATS (must be reported alongside the point estimates):
+     * Per-fold AUROC std is ~0.25-0.30; top-tier subsets overlap
+       substantially in CI and are NOT statistically separable.
+     * Two LOSO folds are structurally degenerate (single-class test set),
+       so effective fold count is lower than 16 — see auroc_folds_eval.
+     * Labels are cohort-relative, not clinical. Findings describe
+       relatively higher-vs-lower variability *within this cohort*.
+     * These conclusions apply to this branch's pipeline only. Do NOT
+       generalize to other branches whose harmonized analyses may use
+       different features, labels, or inclusion rules.
 
-   These results support the feasibility of low-burden glycemic
-   instability monitoring using a reduced-sensor wrist device and
-   warrant replication in a larger, more diverse sample.
+   The results support the *feasibility* of low-burden glycemic
+   variability monitoring from a reduced sensor subset, and motivate
+   replication in a larger, more diverse sample with a clinically
+   defined variability endpoint.
 """)
 
 print("  Saved -> results/final_config.json")

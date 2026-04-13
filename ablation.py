@@ -1,11 +1,37 @@
 """
-Sensor Ablation Study (Co-Primary: RF + XGBoost)
--------------------------------------------------
+Sensor Ablation Study (Co-Primary: RF + XGBoost) + Dummy floor
+---------------------------------------------------------------
 Evaluates Random Forest and XGBoost as co-primary models across all 17
 feature subsets defined in feature_config.ABLATION_SUBSETS.
 
-Goal: identify the minimum wearable sensor configuration that performs
-consistently well across both models.
+A stratified DummyClassifier is also run on every subset to establish an
+explicit chance floor (sanity check — reviewers should be able to see at
+a glance how far each real model is above random guessing).
+
+Logistic Regression is deliberately kept BASELINE-ONLY (see train_baseline.py)
+and is NOT part of the ablation loop: RF and XGB are the co-primary models,
+LR provides a linear-interpretable reference on the full feature set only.
+
+Goal: identify wearable sensor configurations that perform consistently well
+across both non-trivial models. "Best" subsets are reported with per-fold
+uncertainty, not ranked by point estimates alone.
+
+Hyperparameter policy
+---------------------
+Model hyperparameters are FIXED defensible defaults — not tuned on this
+dataset. Tuning inside LOSO with 16 participants is likely to produce
+optimistic and unstable estimates. The chosen defaults are:
+
+  RandomForest: n_estimators=100, class_weight="balanced"
+    Rationale: sklearn default tree count, balanced weighting to handle
+    the ~50/50 cohort-median label without per-fold leakage.
+
+  XGBoost: n_estimators=100, max_depth=3, learning_rate=0.1
+    Rationale: shallow trees + standard learning rate are a conservative
+    default for small N (~112 rows); scale_pos_weight is recomputed per
+    LOSO fold inside run_loso_cv to avoid leaking test-fold class ratios.
+
+  Dummy: strategy="stratified" — samples from training class prior.
 
 Subsets:
   Singles  : hr, ibi, acc, eda, temp
@@ -27,6 +53,7 @@ Outputs:
 import os, json, warnings
 import numpy as np
 import pandas as pd
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 
@@ -37,10 +64,11 @@ warnings.filterwarnings("ignore")
 os.makedirs("results", exist_ok=True)
 
 # ── Model definitions ─────────────────────────────────────────────────────────
-# Note: XGBoost scale_pos_weight is computed per LOSO fold inside run_loso_cv()
-# to avoid leaking test-set class distribution into training.
+# See module docstring for hyperparameter justification (fixed defaults — no
+# per-fold tuning). XGBoost scale_pos_weight is recomputed inside run_loso_cv.
 
 MODELS = {
+    "dummy_stratified": DummyClassifier(strategy="stratified", random_state=42),
     "random_forest": RandomForestClassifier(
         n_estimators=100,
         class_weight="balanced",
@@ -57,7 +85,7 @@ MODELS = {
         verbosity=0,
     ),
 }
-SCALE = {"random_forest": False, "xgboost": False}
+SCALE = {"dummy_stratified": False, "random_forest": False, "xgboost": False}
 
 
 # ── Ablation loop ─────────────────────────────────────────────────────────────
@@ -71,9 +99,9 @@ total     = n_subsets * n_models
 
 print(f"Running ablation: {n_subsets} subsets x {n_models} models = {total} runs\n")
 print(f"{'#':>3s}  {'Subset':<22s}  {'Model':<16s}  "
-      f"{'n':>4s}  {'AUROC_p':>7s}  {'AUROC_fm':>8s}  "
-      f"{'BalAcc':>6s}  {'F1':>6s}  {'Sens':>5s}  {'Spec':>5s}")
-print("-" * 100)
+      f"{'n':>4s}  {'fe':>3s}  {'AUROC_fm':>8s}  {'+-std':>5s}  "
+      f"{'95% CI (fold SE)':>18s}  {'BalAcc':>6s}  {'F1':>6s}")
+print("-" * 110)
 
 run_i = 0
 for subset_name, feat_cols in ABLATION_SUBSETS.items():
@@ -102,12 +130,14 @@ for subset_name, feat_cols in ABLATION_SUBSETS.items():
         all_rows.append(row)
         subset_preds[model_name] = preds
 
+        ci_str = f"[{m['auroc_fold_ci_lo']:.2f}, {m['auroc_fold_ci_hi']:.2f}]"
         print(f"{run_i:>3d}  {subset_name:<22s}  {model_name:<16s}  "
-              f"{m['n']:>4d}  {m['auroc_pooled']:>7.3f}  {m['auroc_fold_mean']:>8.3f}  "
-              f"{m['bal_acc_fold_mean']:>6.3f}  {m['f1_fold_mean']:>6.3f}  "
-              f"{m['sens_fold_mean']:>5.3f}  {m['spec_fold_mean']:>5.3f}")
+              f"{m['n']:>4d}  {m['auroc_folds_eval']:>3d}  "
+              f"{m['auroc_fold_mean']:>8.3f}  {m['auroc_fold_std']:>5.3f}  "
+              f"{ci_str:>18s}  "
+              f"{m['bal_acc_fold_mean']:>6.3f}  {m['f1_fold_mean']:>6.3f}")
 
-    # ── Soft-voting ensemble (secondary analysis) ────────────────────────
+    # ── Soft-voting ensemble (RF + XGB only; dummy excluded) ─────────────
     rf_p  = subset_preds["random_forest"]
     xgb_p = subset_preds["xgboost"]
     assert np.array_equal(rf_p["y_true"].values, xgb_p["y_true"].values), \
@@ -129,8 +159,10 @@ for subset_name, feat_cols in ABLATION_SUBSETS.items():
 results = pd.DataFrame(all_rows)
 results.to_csv("results/ablation_metrics.csv", index=False)
 
-rf_results  = results[results["model"] == "random_forest"].copy()
-xgb_results = results[results["model"] == "xgboost"].copy()
+dummy_results = results[results["model"] == "dummy_stratified"].copy()
+rf_results    = results[results["model"] == "random_forest"].copy()
+xgb_results   = results[results["model"] == "xgboost"].copy()
+dummy_results.to_csv("results/ablation_metrics_dummy.csv", index=False)
 rf_results.to_csv("results/ablation_metrics_rf.csv", index=False)
 xgb_results.to_csv("results/ablation_metrics_xgb.csv", index=False)
 
@@ -142,34 +174,72 @@ ens_df.to_csv("results/ensemble_metrics.csv", index=False)
 # Per-model summaries
 # ══════════════════════════════════════════════════════════════════════════════
 
-def print_model_summary(model_df):
-    """Print ranked subset table for one model."""
+def print_model_summary(model_df, top_set=None):
+    """
+    Ranked subset table for one model.
+
+    top_set: set of subset names in a "top tier" (overlapping-CI cluster).
+             Rows in this set are flagged with 'T' instead of a hard '<< BEST'
+             to avoid implying statistical separation when CIs heavily overlap.
+    """
     s = model_df.sort_values("auroc_fold_mean", ascending=False)
-    print(f"\n  {'Rank':<5s}  {'Subset':<22s}  {'n_feat':>6s}  {'n_samp':>6s}  "
-          f"{'AUROC_fm':>8s}  {'+-std':>5s}  {'BalAcc_fm':>9s}  {'F1_fm':>6s}  "
-          f"{'Sens_fm':>7s}  {'Spec_fm':>7s}")
-    print("  " + "-" * 100)
+    print(f"\n  {'Rank':<4s} {'Subset':<22s} {'nf':>3s} {'n':>4s} {'fe':>3s}  "
+          f"{'AUROC_fm':>8s}  {'+-std':>5s}  {'95% CI (fold SE)':>18s}  "
+          f"{'BalAcc':>6s}  {'F1':>6s}  {'Sens':>5s}  {'Spec':>5s}")
+    print("  " + "-" * 110)
     for rank, (_, r) in enumerate(s.iterrows(), 1):
-        tag = " << BEST" if rank == 1 else (
-              " << FULL" if r["subset"] == "all" else "")
-        print(f"  {rank:<5d}  {r['subset']:<22s}  {int(r.n_features):>6d}  "
-              f"{int(r.n):>6d}  {r.auroc_fold_mean:>8.3f}  "
-              f"{r.auroc_fold_std:>5.3f}  {r.bal_acc_fold_mean:>9.3f}  "
-              f"{r.f1_fold_mean:>6.3f}  "
-              f"{r.sens_fold_mean:>7.3f}  {r.spec_fold_mean:>7.3f}{tag}")
+        flags = []
+        if top_set is not None and r["subset"] in top_set:
+            flags.append("T")          # inside top-tier (CI-overlap cluster)
+        if r["subset"] == "all":
+            flags.append("FULL")
+        tag = ("  " + " ".join(flags)) if flags else ""
+        ci_str = f"[{r.auroc_fold_ci_lo:.2f}, {r.auroc_fold_ci_hi:.2f}]"
+        print(f"  {rank:<4d} {r['subset']:<22s} "
+              f"{int(r.n_features):>3d} {int(r.n):>4d} {int(r.auroc_folds_eval):>3d}  "
+              f"{r.auroc_fold_mean:>8.3f}  {r.auroc_fold_std:>5.3f}  "
+              f"{ci_str:>18s}  "
+              f"{r.bal_acc_fold_mean:>6.3f}  {r.f1_fold_mean:>6.3f}  "
+              f"{r.sens_fold_mean:>5.3f}  {r.spec_fold_mean:>5.3f}{tag}")
 
+
+def _top_tier(model_df):
+    """
+    Return the set of subsets whose 95% per-fold-mean CI overlaps the
+    top subset's CI. These are NOT statistically distinguishable from the
+    nominal leader given LOSO variance.
+    """
+    s = model_df.sort_values("auroc_fold_mean", ascending=False)
+    top = s.iloc[0]
+    top_lo = top["auroc_fold_ci_lo"]
+    overlap = s[s["auroc_fold_ci_hi"] >= top_lo]
+    return set(overlap["subset"].tolist())
+
+
+rf_top  = _top_tier(rf_results)
+xgb_top = _top_tier(xgb_results)
 
 print("\n")
-print("=" * 80)
+print("=" * 110)
+print("  DUMMY (stratified) floor -- per-subset chance baseline")
+print("  All non-dummy rows should be interpreted RELATIVE to these numbers.")
+print("=" * 110)
+print_model_summary(dummy_results)
+
+print("\n")
+print("=" * 110)
 print("  ABLATION SUMMARY -- Random Forest, ranked by AUROC fold mean")
-print("=" * 80)
-print_model_summary(rf_results)
+print("  (T = in top-tier cluster whose 95% CI overlaps the nominal leader's CI;")
+print("   these subsets are NOT statistically separable from the leader)")
+print("=" * 110)
+print_model_summary(rf_results, top_set=rf_top)
 
 print("\n")
-print("=" * 80)
+print("=" * 110)
 print("  ABLATION SUMMARY -- XGBoost, ranked by AUROC fold mean")
-print("=" * 80)
-print_model_summary(xgb_results)
+print("  (T = top-tier cluster, see note above)")
+print("=" * 110)
+print_model_summary(xgb_results, top_set=xgb_top)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -255,18 +325,23 @@ min_viable = viable.sort_values("n_features").iloc[0]
 best_rf  = rf_results.sort_values("auroc_fold_mean", ascending=False).iloc[0]
 best_xgb = xgb_results.sort_values("auroc_fold_mean", ascending=False).iloc[0]
 
-print(f"\n\n  == MINIMUM VIABLE SENSOR CONFIGURATION ==")
-print(f"\n  Decision rule:")
+print(f"\n\n  == CANDIDATE MINIMAL SENSOR CONFIGURATIONS ==")
+print(f"\n  NOTE: Per-fold AUROC std on this dataset is ~0.25-0.30, so top")
+print(f"        subsets overlap substantially in uncertainty. The 'nominal")
+print(f"        minimum viable' pick below is a point-estimate heuristic,")
+print(f"        NOT a claim of statistical superiority. Reviewers should")
+print(f"        treat all 'T'-flagged subsets as plausible candidates.")
+print(f"\n  Decision rule (nominal only):")
 print(f"    Smallest subset where BOTH models' AUROC fold mean >= "
       f"{best_cross_min - MARGIN:.3f}")
 print(f"    (= best cross-model min {best_cross_min:.3f} minus "
       f"{MARGIN} tolerance)")
-print(f"\n  Per-model best:")
+print(f"\n  Per-model nominal best (point estimate only):")
 print(f"    RF  : {best_rf['subset']:<16s}  AUROC fm = "
       f"{best_rf['auroc_fold_mean']:.3f} +- {best_rf['auroc_fold_std']:.3f}")
 print(f"    XGB : {best_xgb['subset']:<16s}  AUROC fm = "
       f"{best_xgb['auroc_fold_mean']:.3f} +- {best_xgb['auroc_fold_std']:.3f}")
-print(f"\n  >> Minimum viable: {min_viable['subset']}")
+print(f"\n  >> Nominal minimum-viable subset: {min_viable['subset']}")
 print(f"    Features       : {int(min_viable['n_features'])}")
 print(f"    RF AUROC fm    : {min_viable['rf_auroc']:.3f}")
 print(f"    XGB AUROC fm   : {min_viable['xgb_auroc']:.3f}")

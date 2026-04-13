@@ -6,21 +6,23 @@ all scripts stay in sync with a single source of truth.
 
 Label strategy
 --------------
-  PRIMARY   : label_median  (CV >= cohort median, ~50/50 split)
-  SENSITIVITY: label_p75    (CV >= 75th percentile, ~25/75 split)
-  REFERENCE : label_clinical (CV >= 36%, effectively unusable for this cohort)
+  PRIMARY    : label_median      (CV >= cohort median, ~50/50 split)
+  SENSITIVITY: label_p75         (CV >= 75th percentile, ~25/75 split)
+  SENSITIVITY: label_mage_median (MAGE >= cohort median, secondary endpoint)
+  REFERENCE  : label_clinical    (CV >= 36%, effectively unusable for this cohort)
 
 Usage
 -----
     from feature_config import MODALITIES, ABLATION_SUBSETS, ALL_FEATURES
-    from feature_config import LABEL_COL, SENSITIVITY_LABEL_COL
+    from feature_config import LABEL_COL, SENSITIVITY_LABEL_COL, MAGE_LABEL_COL
 """
 
 from itertools import combinations
 
 # ── Label columns ─────────────────────────────────────────────────────────────
-LABEL_COL             = "label"          # == label_median, used for all primary models
-SENSITIVITY_LABEL_COL = "label_p75"      # used in sensitivity analysis only
+LABEL_COL             = "label"             # == label_median, primary
+SENSITIVITY_LABEL_COL = "label_p75"         # CV p75 sensitivity analysis
+MAGE_LABEL_COL        = "label_mage_median" # MAGE secondary endpoint
 
 # ── Individual modality feature lists ─────────────────────────────────────────
 MODALITIES: dict[str, list[str]] = {
@@ -123,8 +125,8 @@ META_COLS = {
     "mean_glucose", "sd_glucose", "cv",
     "tir_70_180", "tar_180", "tbr_70", "mage",
     "label", "label_str",
-    "label_median", "label_p75", "label_clinical",
-    "cv_threshold_median", "cv_threshold_p75",
+    "label_median", "label_p75", "label_clinical", "label_mage_median",
+    "cv_threshold_median", "cv_threshold_p75", "mage_threshold_median",
 }
 
 # ── Quick self-test ───────────────────────────────────────────────────────────
