@@ -4,8 +4,9 @@
     "random_forest",
     "xgboost"
   ],
-  "primary_label": "label",
-  "sensitivity_label": "label_p75",
+  "primary_endpoint": "label",
+  "sensitivity_label_p75": "label_p75",
+  "sensitivity_label_mage": "label_mage_median",
   "minimum_viable_subset": "acc",
   "minimum_viable_n_features": 3,
   "best_rf_subset": "acc",
